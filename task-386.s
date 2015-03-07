@@ -47,5 +47,5 @@ rval:
 .type _taskspin,@function
 /* void _taskspin(void) */
 _taskspin:
-    PAUSE
+    PAUSE /* on pre-SSE2, this is "rep nop" aka. nop */
     RET
