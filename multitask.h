@@ -166,6 +166,10 @@ int chansendnb(Chan *c, const void *v);
 int chanrecv(Chan *c, void *v);
 int chanrecvnb(Chan *c, void *v);
 
+/*
+ * Waiting on multiple channels
+ */
+
 enum {
     CHANNOP,
     CHANSEND,
@@ -224,11 +228,6 @@ void iowrite(Chan *c, int fd, const void *buf, size_t count);
 void iowriten(Chan *c, int fd, const void *buf, size_t count);
 void ionsleep(Chan *c, uvlong ns, uvlong *left);
 void iowait(Chan *c, pid_t pid, int *status, int options);
-
-/*
- * Waiting on multiple channels
- */
-
 
 /*
  * Rendezvous synchronization points
