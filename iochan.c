@@ -46,7 +46,7 @@ enum {
 };
 
 enum {
-    DEFTIMEOUT = 1000,
+    DEFTIMEOUT = 10000,
     SIGCANCEL = SIGUSR1,
 };
 
