@@ -243,6 +243,7 @@ timethread( void *arg )
 
         /* pop top element */
         q->w[0] = q->w[--q->nw];
+        q->w[0].c->tqi = 0;
         heapifydown(q, 0);
 
         /* notify the channel */
