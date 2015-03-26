@@ -182,7 +182,7 @@ init( void )
 
             /* register a dummy signal handler */
             sa.sa_handler = xsig;
-            sa.sa_flags = SA_ONSTACK;
+            sa.sa_flags = 0;
             if ((r = sigfillset(&sa.sa_mask)) != 0) { goto errout; }
             if ((r = sigaction(SIGCANCEL, &sa, nil)) != 0) { goto errout; }
 
@@ -215,7 +215,7 @@ newio( Chan *c,
     iobeg.t = _taskdequeue();
 
     /* create the thread. The thread will init the channel */
-    if (threadcreate(iothread, &iobeg, 1024 + extrastack) < 0) {
+    if (threadcreate(iothread, &iobeg, PTHREAD_STACK_MIN + extrastack) < 0) {
         /* undequeue because the thread wasn't created */
         _taskundequeue(iobeg.t);
         _tqremove(&cancelq, c, true, false);

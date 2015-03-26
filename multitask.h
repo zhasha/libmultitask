@@ -11,8 +11,6 @@ AUTOLINK(multitask)
  * Threading
  */
 
-#define MINSTACKSIZE 128
-
 void threadmain(int argc, char *argv[]);
 int threadcreate(void (*fn)(void *), void *arg, size_t stacksize);
 int taskcreate(void (*fn)(void *), void *arg, size_t stacksize);

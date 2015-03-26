@@ -137,7 +137,7 @@ alloctask( void (*fn)(void *),
     byte *mem;
 
     if (!nostack) {
-        if (stacksize < MINSTACKSIZE) { stacksize = MINSTACKSIZE; }
+        if (stacksize < PTHREAD_STACK_MIN) { stacksize = PTHREAD_STACK_MIN; }
         stacksize = (stacksize + 63U) & ~63U;
         ssz = stacksize;
 
@@ -314,19 +314,8 @@ int
 main( int argc,
       char *argv[] )
 {
-    static byte altstack[ALTSTACKSIZE];
-    static const stack_t as = {
-        .ss_sp = altstack,
-        .ss_flags = 0,
-        .ss_size = sizeof(altstack)
-    };
-
     Mainargs arg = { argc, argv };
     Task t;
-
-    /* we need to set up an alternative stack for signal handlers as they would
-     * otherwise clobber the shit out of everything with small stacks */
-    if (sigaltstack(&as, nil) != 0) { assert(!"sigaltstack shouldn't fail"); }
 
     /* the main thread has infinite stack, so just give it arbitrary size */
     inittask(&t, nil, mainstart, &arg, nil, ((size_t)-1) / 2);

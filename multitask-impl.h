@@ -26,10 +26,6 @@ struct Task
     void *mem;
 };
 
-enum {
-    ALTSTACKSIZE = 32 * 1024,
-};
-
 /* prepare the task t for use */
 void _tasksetjmp(jmp_buf env, void *stack, Task *t);
 
