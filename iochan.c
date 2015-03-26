@@ -27,7 +27,6 @@ struct IOThread
     atomic_int state;
     volatile uvlong timeout;
     Task *volatile canceler;
-    ARendez killrend;
     sem_t sem;
 
     /* itc */
@@ -71,7 +70,6 @@ iothread( void *arg )
 
         /* initialize everything and dequeue ourselves */
         atomic_init(&io.state, WAITING);
-        arendezinit(&io.killrend);
         io.timeout = 0;
         io.canceler = nil;
         io.task = _taskdequeue();
@@ -133,12 +131,10 @@ iothread( void *arg )
         if (!proc) { break; }
     }
 
+    /* remove own cancel queue slot */
+    _tqremove(&cancelq, c, true, false);
     /* on sane systems this is a nop */
     sem_destroy(&io.sem);
-
-    /* since returning from this function will free the IOThread, we need to
-     * control it gracefully */
-    arendez(&io.killrend, nil);
 }
 
 static uvlong
@@ -264,7 +260,6 @@ _iocancel( Chan *c,
     io->timeout = DEFTIMEOUT;
     _tqinsert(&cancelq, c, DEFTIMEOUT, false);
     taskyield();
-    _tqremove(&cancelq, c, (state == MORIBUND), false);
 
     return true;
 }
@@ -283,6 +278,7 @@ _iochanfree( Chan *c )
      * - chansendnb cannot acquire the lock because we hold it
      */
     unlock(&c->lock);
+
     while (!_iocancel(c, MORIBUND)) {
         int r = WAITING;
         if (atomic_compare_exchange_strong(&io->state, &r, MORIBUND)) {
@@ -290,17 +286,9 @@ _iochanfree( Chan *c )
              * not try to chansendnb anything */
             io->proc = nil;
             _taskready(io->task);
-            /* remove from cancellation queue. If we had successfully canceled
-             * instead it would have been done for us, but we didn't. */
-            _tqremove(&cancelq, c, true, false);
             break;
         }
     }
-    lock(&c->lock);
-    /* finally we can free the IOThread */
-    arendez(&io->killrend, nil);
-    /* don't try to free this buffer. It's on the stack of the iothread */
-    c->buf = nil;
 }
 
 /* TODO: When musl gets reliable cancellation, use that */

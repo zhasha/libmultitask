@@ -120,7 +120,7 @@ _chanunref( Chan *c )
     if (refs == 0) {
         switch (c->type & ~HEAPBIT) {
             case CTTIME: _tchanfree(c); break;
-            case CTIO: _iochanfree(c); break;
+            case CTIO: _iochanfree(c); return 0;
         }
 
         unlock(&c->lock);
