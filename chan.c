@@ -167,7 +167,7 @@ chancpy( void *dst,
          const void *src,
          size_t sz )
 {
-    if (dst && src) { memcpy(dst, src, sz); }
+    if (dst && src && sz) { memcpy(dst, src, sz); }
 }
 
 static inline CWaiter *
@@ -500,12 +500,12 @@ static inline bool
 isready( Chan *c,
          int op )
 {
-    if (c->elemsz == 0) {
-        return nullready(c, op);
-    } else if (c->nelem == 0) {
+    if (c->nelem == 0) {
         CQueue *q = (op == CHANSEND) ? &c->recvq : &c->sendq;
         if (atomic_load(&q->first) != nil) { return true; }
         return false;
+    } else if (c->elemsz == 0) {
+        return nullready(c, op);
     } else {
         return asyncready(c, op);
     }
@@ -518,12 +518,8 @@ chanop( Chan *c,
         int op,
         bool nb )
 {
-    if (c->elemsz == 0) {
-        cv = nil;
-        v = nil;
-    } else if (c->nelem == 0) {
-        return syncop(c, cv, v, op, nb);
-    }
+    if (c->nelem == 0) { return syncop(c, cv, v, op, nb); }
+    if (c->elemsz == 0) { cv = v = nil; }
     return asyncop(c, cv, v, op, nb);
 }
 
