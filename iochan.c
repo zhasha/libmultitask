@@ -163,7 +163,7 @@ static int
 init( void )
 {
     static atomic_int inited = ATOMIC_VAR_INIT(0);
-    static Lock initlock = LOCKINIT;
+    static Lock initlock;
 
     if (atomic_load(&inited) == 0) {
         int r = 0;

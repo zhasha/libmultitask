@@ -11,6 +11,7 @@ OFILES=\
 	queue.$O\
 	ref.$O\
 	rendez.$O\
+	rwlock.$O\
 	task-$objtype.$O\
 	task.$O\
 	timechan.$O\

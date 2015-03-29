@@ -66,7 +66,6 @@ threadmain( int argc,
     (void)argc;
     (void)argv;
 
-    arendezinit(&arend);
     taskcreate(t1, nil, 8 * 1024);
     taskcreate(t2, nil, 8 * 1024);
     taskcreate(t3, nil, 8 * 1024);

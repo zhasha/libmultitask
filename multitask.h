@@ -1,6 +1,5 @@
 AUTOLINK(multitask)
 
-#include <pthread.h>
 #include <stdatomic.h>
 
 #ifndef thread_local
@@ -30,49 +29,30 @@ struct Ref
     atomic_ulong refs;
 };
 
-void refinit(Ref *r);
 void ref(Ref *r);
 ulong unref(Ref *r);
 
 /*
- * Threaded locks
+ * Thread locks (degrades to spinlocks)
  */
 
 typedef struct Lock Lock;
-typedef struct RWLock RWLock;
 
 struct Lock
 {
-    pthread_mutex_t pmtx;
+    atomic_int locked;
 };
 
-struct RWLock
-{
-    pthread_rwlock_t prwl;
-};
-
-#define LOCKINIT {PTHREAD_MUTEX_INITIALIZER}
-#define RWLOCKINIT {PTHREAD_RWLOCK_INITIALIZER}
-
-void lockinit(Lock *l);
 void lock(Lock *l);
-bool trylock(Lock *l);
+int trylock(Lock *l);
 void unlock(Lock *l);
 
-void rwlockinit(RWLock *l);
-void rlock(RWLock *l);
-bool tryrlock(RWLock *l);
-void runlock(RWLock *l);
-void wlock(RWLock *l);
-bool trywlock(RWLock *l);
-void wunlock(RWLock *l);
-
 /*
- * Task-aware locks
+ * Queueing locks
  */
 
 typedef struct QLock QLock;
-typedef struct QRWLock QRWLock;
+typedef struct RWLock RWLock;
 
 struct QLock
 {
@@ -81,30 +61,23 @@ struct QLock
     void *begin, *end;
 };
 
-struct QRWLock
+struct RWLock
 {
     Lock l;
-    ulong locked;
-    ulong rwait;
-    void *rbegin, *rend;
-    void *wbegin, *wend;
+    atomic_int locked;
+    void *begin, *end;
 };
 
-#define QLOCKINIT {LOCKINIT, ATOMIC_VAR_INIT(0), nil, nil}
-#define QRWLOCKINIT {LOCKINIT, 0, 0, nil, nil, nil, nil}
-
-void qlockinit(QLock *l);
 void qlock(QLock *l);
 int qtrylock(QLock *l);
 void qunlock(QLock *l);
 
-void qrwlockinit(QRWLock *l);
-void qrlock(QRWLock *l);
-int qtryrlock(QRWLock *l);
-void qrunlock(QRWLock *l);
-void qwlock(QRWLock *l);
-int qtrywlock(QRWLock *l);
-void qwunlock(QRWLock *l);
+void rlock(RWLock *l);
+int tryrlock(RWLock *l);
+void runlock(RWLock *l);
+void wlock(RWLock *l);
+int trywlock(RWLock *l);
+void wunlock(RWLock *l);
 
 /*
  * Task queue
@@ -113,11 +86,10 @@ typedef struct Queue Queue;
 
 struct Queue
 {
-    void *begin, *end;
     Lock lock;
+    void *begin, *end;
 };
 
-void queueinit(Queue *q);
 void qwait(Queue *q);
 ulong qwake(Queue *q, ulong n);
 
@@ -245,5 +217,4 @@ struct ARendez
     _Atomic(void *) task;
 };
 
-void arendezinit(ARendez *r);
 void *arendez(ARendez *r, void *value);

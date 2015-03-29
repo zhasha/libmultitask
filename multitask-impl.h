@@ -67,7 +67,7 @@ typedef struct Waiter Waiter;
 struct TimeQueue
 {
     pthread_cond_t cond;
-    Lock lock;
+    pthread_mutex_t mtx;
     clockid_t clock;
 
     Waiter *w;

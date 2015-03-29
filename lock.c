@@ -1,97 +1,51 @@
 #include <u.h>
 #include <libc.h>
 #include <multitask.h>
+#include "multitask-impl.h"
 
-#include <pthread.h>
+#include <syscall.h>
+
+#ifdef SYS_futex
+#define usefutex
+#define FUTEX_WAIT 0
+#define FUTEX_WAKE 1
+static_assert(sizeof(int) == sizeof(atomic_int),
+              "int and atomic_int must be interchangable");
+#endif
 
 void
-lockinit(Lock *l)
+lock( Lock *l )
 {
-    int r = pthread_mutex_init(&l->pmtx, nil);
-    assert(r == 0 && "pthread_mutex_init failed");
-}
+    while (1) {
+        int spins = 200;
 
-void
-lock(Lock *l)
-{
-    int r = pthread_mutex_lock(&l->pmtx);
-    assert(r == 0 && "pthread_mutex_lock failed");
-}
+        while (spins--) {
+            if (atomic_exchange(&l->locked, 1) == 0) {
+                atomic_thread_fence(memory_order_seq_cst);
+                return;
+            }
+            _taskspin();
+        }
 
-bool
-trylock(Lock *l)
-{
-    int r = pthread_mutex_trylock(&l->pmtx);
-    switch (r) {
-        case 0: return true;
-        case EBUSY: return false;
+#ifdef usefutex
+        syscall(SYS_futex, (volatile int *)&l->locked, FUTEX_WAIT, 1, nil);
+#else
+        nsleep(10000);
+#endif
     }
-    assert(!"pthread_mutex_trylock failed");
-    return false;
+}
+
+int
+trylock( Lock *l )
+{
+    return (atomic_exchange(&l->locked, 1) == 0);
 }
 
 void
-unlock(Lock *l)
+unlock( Lock *l )
 {
-    int r = pthread_mutex_unlock(&l->pmtx);
-    assert(r == 0 && "pthread_mutex_unlock failed");
-}
-
-void
-rwlockinit(RWLock *l)
-{
-    int r = pthread_rwlock_init(&l->prwl, nil);
-    assert(r == 0 && "pthread_rwlock_init failed");
-}
-
-void
-rlock(RWLock *l)
-{
-    int r = pthread_rwlock_rdlock(&l->prwl);
-    assert(r == 0 && "pthread_rwlock_rdlock failed");
-}
-
-bool
-tryrlock(RWLock *l)
-{
-    int r = pthread_rwlock_tryrdlock(&l->prwl);
-    switch (r) {
-        case 0: return true;
-        case EBUSY: return false;
-    }
-    assert(!"pthread_rwlock_tryrdlock failed");
-    return false;
-}
-
-void
-runlock(RWLock *l)
-{
-    int r = pthread_rwlock_unlock(&l->prwl);
-    assert(r == 0 && "pthread_rwlock_(rd)unlock failed");
-}
-
-void
-wlock(RWLock *l)
-{
-    int r = pthread_rwlock_wrlock(&l->prwl);
-    assert(r == 0 && "pthread_rwlock_wrlock failed");
-}
-
-bool
-trywlock(RWLock *l)
-{
-    int r = pthread_rwlock_trywrlock(&l->prwl);
-    switch (r) {
-        case 0: return true;
-        case EBUSY: return false;
-    }
-    assert(!"pthread_rwlock_trywrlock failed");
-    return false;
-}
-
-void
-wunlock(RWLock *l)
-{
-    int r = pthread_rwlock_unlock(&l->prwl);
-    assert(r == 0 && "pthread_rwlock_(wr)unlock failed");
+    atomic_store(&l->locked, 0);
+#ifdef usefutex
+    syscall(SYS_futex, (volatile int *)&l->locked, FUTEX_WAKE, 1, nil);
+#endif
 }

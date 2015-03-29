@@ -259,8 +259,10 @@ threadstart( void *arg )
     Task *t = arg;
     int r;
 
-    /* init tls */
     tasks = &tls;
+
+    /* init tls */
+    memset(&tls, 0, sizeof(tls));
     tls.cur = t;
     tls.ready = &tls.readystub;
     atomic_init(&tls.readyend, &tls.readystub);
@@ -271,8 +273,6 @@ threadstart( void *arg )
     tls.popped = false;
     r = sem_init(&tls.sem, 0, 0);
     assert(r == 0 && "sem_init failed; fix your libpthread");
-    lockinit(&tls.sigstacklock);
-    tls.sigstack = nil;
 
     /* use the OS-assigned stack */
     t->stack = &tls;

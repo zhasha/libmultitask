@@ -60,7 +60,7 @@ _chaninit( Chan *c,
 
     c->refs = 0;
     atomic_init(&c->closed, false);
-    lockinit(&c->lock);
+    memset(&c->lock, 0, sizeof(c->lock));
 
     c->tqi = 0;
 }

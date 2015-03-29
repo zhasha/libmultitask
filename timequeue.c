@@ -120,13 +120,15 @@ _tqinsert( TimeQueue *q,
     ts = ns2ts(q, nsec);
 
     /* insert timeout on heap */
-    lock(&q->lock);
+    r = pthread_mutex_lock(&q->mtx);
+    assert(r == 0);
     q->w[q->nw].ts = ts;
     q->w[q->nw].c = c;
     c->tqi = q->nw;
     heapifyup(q, q->nw++);
     ti = c->tqi;
-    unlock(&q->lock);
+    r = pthread_mutex_unlock(&q->mtx);
+    assert(r == 0);
 
     if (ti == 0) {
         /* this is the shortest so far, so ping the timer thread */
@@ -142,8 +144,10 @@ _tqremove( TimeQueue *q,
            bool flush )
 {
     size_t i;
+    int r;
 
-    lock(&q->lock);
+    r = pthread_mutex_lock(&q->mtx);
+    assert(r == 0);
 
     i = c->tqi;
     if (i < q->nw && q->w[i].c == c) {
@@ -181,7 +185,8 @@ _tqremove( TimeQueue *q,
         chanrecvnb(c, nil);
     }
 
-    unlock(&q->lock);
+    r = pthread_mutex_unlock(&q->mtx);
+    assert(r == 0);
 
     if (i == 0) {
         int r = pthread_cond_signal(&q->cond);
@@ -192,14 +197,19 @@ _tqremove( TimeQueue *q,
 int
 _tqalloc( TimeQueue *q )
 {
-    lock(&q->lock);
+    int r;
+
+    r = pthread_mutex_lock(&q->mtx);
+    assert(r == 0);
+
     if (q->nneed >= q->nalloc) {
         /* realloc if there's not enough room to run all waiters */
         size_t n = (q->nalloc == 0) ? DEFWAITERS : (q->nalloc * 2);
         void *mem = realloc(q->w, n * sizeof(Waiter));
 
         if (!mem) {
-            unlock(&q->lock);
+            r = pthread_mutex_unlock(&q->mtx);
+            assert(r == 0);
             return -1;
         }
 
@@ -207,7 +217,9 @@ _tqalloc( TimeQueue *q )
         q->w = mem;
     }
     q->nneed++;
-    unlock(&q->lock);
+
+    r = pthread_mutex_unlock(&q->mtx);
+    assert(r == 0);
 
     return 0;
 }
@@ -217,25 +229,28 @@ timethread( void *arg )
 {
     TimeQueue *q = arg;
     Waiter w;
+    int r;
 
-    lock(&q->lock);
+    r = pthread_mutex_lock(&q->mtx);
+    assert(r == 0);
     while (1) {
-        uvlong r;
+        uvlong res;
 
         /* no timechan waiters, so wait for some */
         while (q->nw == 0) {
-            pthread_cond_wait(&q->cond, &q->lock.pmtx);
+            pthread_cond_wait(&q->cond, &q->mtx);
 
             if (q->stop) {
                 free(q->w);
-                unlock(&q->lock);
+                r = pthread_mutex_unlock(&q->mtx);
+                assert(r == 0);
                 return;
             }
         }
 
         /* wait for the timeout */
         w = q->w[0];
-        while (pthread_cond_timedwait(&q->cond, &q->lock.pmtx, &w.ts) != ETIMEDOUT) {
+        while (pthread_cond_timedwait(&q->cond, &q->mtx, &w.ts) != ETIMEDOUT) {
             if (q->nw == 0) { break; }
             w = q->w[0];
         }
@@ -247,16 +262,17 @@ timethread( void *arg )
         heapifydown(q, 0);
 
         /* notify the channel */
-        r = q->cb(w.c);
-        if (r > 0) {
+        res = q->cb(w.c);
+        if (res > 0) {
             /* reinsert element */
-            q->w[q->nw].ts = ns2ts(q, r);
+            q->w[q->nw].ts = ns2ts(q, res);
             q->w[q->nw].c = w.c;
             w.c->tqi = q->nw;
             heapifyup(q, q->nw++);
         }
     }
-    unlock(&q->lock);
+    r = pthread_mutex_unlock(&q->mtx);
+    assert(r == 0);
 }
 
 int
@@ -295,7 +311,11 @@ _tqinit( TimeQueue *q,
     /* init the condvar with (hopefully) a good clock source */
     if (pthread_cond_init(&q->cond, ca) != 0) { return -1; }
     if (ca) { pthread_condattr_destroy(ca); }
-    lockinit(&q->lock);
+
+    if (pthread_mutex_init(&q->mtx, nil) != 0) {
+        pthread_cond_destroy(&q->cond);
+        return -1;
+    }
 
     q->w = nil;
     q->nw = 0;
@@ -306,7 +326,11 @@ _tqinit( TimeQueue *q,
     q->cb = cb;
 
     /* start the time thread */
-    if (threadcreate(timethread, q, 2048) < 0) { return -1; }
+    if (threadcreate(timethread, q, 2048) < 0) {
+        pthread_cond_destroy(&q->cond);
+        pthread_mutex_destroy(&q->mtx);
+        return -1;
+    }
 
     return 0;
 }
@@ -316,9 +340,11 @@ _tqfree( TimeQueue *q )
 {
     int r;
 
-    lock(&q->lock);
+    r = pthread_mutex_lock(&q->mtx);
+    assert(r == 0);
     q->stop = 1;
-    unlock(&q->lock);
+    r = pthread_mutex_unlock(&q->mtx);
+    assert(r == 0);
 
     r = pthread_cond_signal(&q->cond);
     assert(r == 0);

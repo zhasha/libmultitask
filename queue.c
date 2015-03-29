@@ -4,14 +4,6 @@
 #include "multitask-impl.h"
 
 void
-queueinit( Queue *q )
-{
-    lockinit(&q->lock);
-    q->begin = nil;
-    q->end = nil;
-}
-
-void
 qwait( Queue *q )
 {
     Task *t = _taskdequeue();

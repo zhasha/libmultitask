@@ -16,19 +16,8 @@ struct Rendez
 };
 
 #define HTSZ 16
-static struct { Rendez *r; Lock l; } ht[HTSZ];
 
-static void
-init( void )
-{
-    uint i;
-    for (i = 0; i < HTSZ; ++i) {
-        ht[i].r = nil;
-        lockinit(&ht[i].l);
-    }
-}
-
-static uint
+static inline uint
 hash( void *p )
 {
     byte *d = (byte *)&p;
@@ -44,11 +33,9 @@ void *
 rendez( void *tag,
         void *value )
 {
-    static pthread_once_t htonce = PTHREAD_ONCE_INIT;
+    static struct { Rendez *r; Lock l; } ht[HTSZ];
     uint h = hash(tag) % HTSZ;
     Rendez *r, *p, sr;
-
-    pthread_once(&htonce, init);
 
     _threadblocksigs();
     lock(&ht[h].l);
@@ -88,12 +75,6 @@ rendez( void *tag,
 
     /* return exchanged value */
     return sr.value;
-}
-
-void
-arendezinit( ARendez *r )
-{
-    atomic_init(&r->task, nil);
 }
 
 void *
