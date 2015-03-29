@@ -19,6 +19,10 @@ struct Tls
     sem_t sem;
     sigset_t oldsigs;
     jmp_buf ptctx;
+
+    /* signal stack */
+    Lock sigstacklock;
+    void *sigstack;
 };
 
 static thread_local Tls *tasks;
@@ -133,26 +137,24 @@ alloctask( void (*fn)(void *),
            bool nostack )
 {
     Task *t;
-    size_t ssz = 0;
     byte *mem;
 
     if (!nostack) {
-        if (stacksize < PTHREAD_STACK_MIN) { stacksize = PTHREAD_STACK_MIN; }
-        stacksize = (stacksize + 63U) & ~63U;
-        ssz = stacksize;
+        if ((size_t)-1 - stacksize >= 63) { stacksize += 63; }
+        stacksize &= ~(size_t)63;
 
         /* overflow check */
         if ((size_t)-1 - stacksize < sizeof(Task)) { return nil; }
     }
 
-    mem = aligned_alloc(64, ssz + sizeof(Task));
+    mem = aligned_alloc(64, (nostack ? 0 : stacksize) + sizeof(Task));
     if (!mem) { return nil; }
 
-    t = (Task *)&mem[ssz];
-    inittask(t, mem, fn, arg, &mem[ssz], stacksize);
+    t = (Task *)&mem[nostack ? 0 : stacksize];
+    inittask(t, mem, fn, arg, (void *)t, stacksize);
 
     /* stack should be aligned to 64-byte boundary */
-    assert(((uintptr)t->stack & (uintptr)63U) == 0);
+    assert(((uintptr)t->stack & (uintptr)63) == 0);
 
     return t;
 }
@@ -269,6 +271,8 @@ threadstart( void *arg )
     tls.popped = false;
     r = sem_init(&tls.sem, 0, 0);
     assert(r == 0 && "sem_init failed; fix your libpthread");
+    lockinit(&tls.sigstacklock);
+    tls.sigstack = nil;
 
     /* use the OS-assigned stack */
     t->stack = &tls;
@@ -291,6 +295,10 @@ threadstart( void *arg )
     /* should be a nop barring a terrible libc */
     r = sem_destroy(&tls.sem);
     assert(r == 0 && "sem_destroy failed; murder your libpthread");
+    /* free alt sig stack (pthread's stack is always large enough, making this
+     * as safe as it's going to get when signals are involved) */
+    r = threadsigstack(0);
+    assert(r == 0 && "threadsigstack(0) should never fail");
 
     return nil;
 }
@@ -326,6 +334,40 @@ main( int argc,
      * This way, you need to manually call exit() to kill the pid */
     pthread_exit(nil);
     return 0; /* unreached */
+}
+
+int
+threadsigstack( size_t stacksize )
+{
+    stack_t ss;
+    void *oldstk, *stk = nil;
+
+    if (stacksize == 0) {
+        /* remove alt stack */
+        ss.ss_flags = SS_DISABLE;
+    } else {
+        /* exchange alt stack */
+        if (stacksize < MINSIGSTKSZ) { stacksize = MINSIGSTKSZ; }
+
+        stk = malloc(stacksize);
+        if (!stk) { return -1; }
+
+        ss.ss_sp = stk;
+        ss.ss_flags = 0;
+        ss.ss_size = stacksize;
+    }
+
+    lock(&tasks->sigstacklock);
+    if (sigaltstack(&ss, nil) != 0) {
+        unlock(&tasks->sigstacklock);
+        return -1;
+    }
+    oldstk = tasks->sigstack;
+    tasks->sigstack = stk;
+    unlock(&tasks->sigstacklock);
+
+    free(oldstk);
+    return 0;
 }
 
 int

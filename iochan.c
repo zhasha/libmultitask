@@ -178,7 +178,7 @@ init( void )
 
             /* register a dummy signal handler */
             sa.sa_handler = xsig;
-            sa.sa_flags = 0;
+            sa.sa_flags = SA_ONSTACK;
             if ((r = sigfillset(&sa.sa_mask)) != 0) { goto errout; }
             if ((r = sigaction(SIGCANCEL, &sa, nil)) != 0) { goto errout; }
 
