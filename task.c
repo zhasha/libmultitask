@@ -54,14 +54,14 @@ _taskready( Task *t )
 {
     if (enqueue(t)) {
         int r = sem_post(&t->tls->sem);
-        assert(r == 0 && "sem_post failing == implementation error");
+        assert(r == 0);
     }
 }
 
 Task *
 _taskdequeue( void )
 {
-    assert(!tasks->popped && "_taskdequeue() called twice on the same task");
+    assert(!tasks->popped);
     tasks->popped = true;
     return tasks->cur;
 }
@@ -70,8 +70,8 @@ void
 _taskundequeue( Task *t )
 {
     (void)t;
-    assert(tasks->popped && "_taskundequeue() called before _taskdequeue()");
-    assert(t == tasks->cur && "_taskundequeue() called with wrong task");
+    assert(tasks->popped);
+    assert(t == tasks->cur);
     tasks->popped = false;
 }
 
@@ -229,7 +229,7 @@ popwait:
             Task *a = q;
             if (atomic_compare_exchange_weak(&tasks->readyend, &a, w)) {
                 while (sem_wait(&tasks->sem) != 0) {
-                    assert(errno == EINTR && "sem_wait did what?!");
+                    assert(errno == EINTR);
                 }
             }
             continue;
@@ -272,7 +272,7 @@ threadstart( void *arg )
     tls.ntasks = 1;
     tls.popped = false;
     r = sem_init(&tls.sem, 0, 0);
-    assert(r == 0 && "sem_init failed; fix your libpthread");
+    assert(r == 0);
 
     /* use the OS-assigned stack */
     t->stack = &tls;
@@ -294,11 +294,11 @@ threadstart( void *arg )
 
     /* should be a nop barring a terrible libc */
     r = sem_destroy(&tls.sem);
-    assert(r == 0 && "sem_destroy failed; murder your libpthread");
+    assert(r == 0);
     /* free alt sig stack (pthread's stack is always large enough, making this
      * as safe as it's going to get when signals are involved) */
     r = threadsigstack(0);
-    assert(r == 0 && "threadsigstack(0) should never fail");
+    assert(r == 0);
 
     return nil;
 }
@@ -471,7 +471,5 @@ taskexit( void )
     }
     /* perform a non-returning yield */
     taskyield();
-
-    assert(!"taskyield() should not return in taskexit()");
     abort();
 }

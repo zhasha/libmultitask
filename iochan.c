@@ -78,9 +78,9 @@ iothread( void *arg )
 
         /* according to posix these can't fail lest you give bad args */
         r = sem_init(&io.sem, 0, 0);
-        assert(r == 0 && "sem_init failed in iothread");
+        assert(r == 0);
         r = pthread_sigmask(SIG_SETMASK, &sigs, nil);
-        assert(r == 0 && "pthread_sigmask failed in iothread");
+        assert(r == 0);
 
         /* "rendezvous" the creating task */
         _taskready(iobeg->t);
@@ -116,7 +116,7 @@ iothread( void *arg )
 
                 /* this request was cancelled so someone is waiting for us */
                 while (sem_wait(&io.sem) != 0) {
-                    assert(errno == EINTR && "sem_wait shouldn't fail!");
+                    assert(errno == EINTR);
                 }
                 _taskready(io.canceler);
                 break;
@@ -252,7 +252,7 @@ _iocancel( Chan *c,
     /* synchronize with the io thread */
     io->canceler = _taskdequeue();
     r = sem_post(&io->sem);
-    assert(r == 0 && "sem_post shouldn't fail!");
+    assert(r == 0);
 
     /* try to kill the current call */
     pthread_kill(io->ptid, SIGCANCEL);
