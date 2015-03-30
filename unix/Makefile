@@ -1,6 +1,6 @@
 CC=clang -std=gnu11
 AS=clang -integrated-as -mllvm --x86-asm-syntax=intel
-CFLAGS=-Os
+CFLAGS=-Os -g
 AFLAGS=
 PREFIX=/usr/local
 LIBDIR=$(PREFIX)/lib
