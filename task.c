@@ -280,7 +280,8 @@ threadstart( void *arg )
 
     /* switch to new task */
     if (setjmp(tls.ptctx) == 0) {
-        _taskstart(t);
+        t->fn(t->arg);
+        taskexit();
     }
     /* after the last exit, we go here */
 
