@@ -79,7 +79,7 @@ threadmain( int argc,
             char *argv[] )
 {
     Chan tc;
-    Chan ioc;
+    Chan *ioc;
     Alt alts[3];
     ssize_t sr;
     int fd, i = ~0;
@@ -91,7 +91,8 @@ threadmain( int argc,
     OKN(chaninit(&c2, sizeof(int), 1));
     OKN(chaninit(&c3, sizeof(int), 32));
     OKN(tchaninit(&tc));
-    OKN(iochaninit(&ioc, 0));
+    ioc = iochan(0);
+    assert(ioc);
 
     OKN(threadcreate(sendtask, &c1, 8 * 1024));
 
@@ -130,13 +131,13 @@ threadmain( int argc,
     }
     RECV(&c1, &i);
 
-    ioopen(&ioc, "/etc/resolv.conf", O_RDONLY, 0);
-    OK(chanrecv(&ioc, &sr));
+    ioopen(ioc, "/etc/resolv.conf", O_RDONLY, 0);
+    OK(chanrecv(ioc, &sr));
     fd = (int)sr;
     fprint(1, "ioopen got fd %d\n", fd); fflush(stdout);
     if (fd < 0) { abort(); }
-    ioread(&ioc, fd, buf, sizeof(buf));
-    OK(chanrecv(&ioc, &sr));
+    ioread(ioc, fd, buf, sizeof(buf));
+    OK(chanrecv(ioc, &sr));
     if (sr <= 0) {
         fprint(1, "Error reading /etc/resolv.conf: %s\n", strerror(-(int)sr));
         abort();
@@ -145,17 +146,17 @@ threadmain( int argc,
         fflush(stdout);
     }
 
-    iosleep(&ioc, (uvlong)4 * 1000000000);
+    iosleep(ioc, (uvlong)4 * 1000000000);
     tchanset(&tc, (uvlong)6 * 1000000000);
     alts[0].c = &tc;
     alts[0].v = nil;
     alts[0].op = CHANRECV;
-    alts[1].c = &ioc;
+    alts[1].c = ioc;
     alts[1].v = nil;
     alts[1].op = CHANRECV;
     alts[2].op = CHANEND;
     sleep(2);
-    iocancel(&ioc);
+    iocancel(ioc);
     switch (OKN(alt(alts))) {
         case 0: break;
         case 1:

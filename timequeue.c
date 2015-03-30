@@ -149,15 +149,17 @@ _tqremove( TimeQueue *q,
     r = pthread_mutex_lock(&q->mtx);
     assert(r == 0);
 
-    i = c->tqi;
-    if (i < q->nw && q->w[i].c == c) {
-        /* only remove from heap if it's still registered */
-        if (i != --q->nw) {
-            /* if it's not the last element, we re-heapify */
-            q->w[i] = q->w[q->nw];
-            q->w[i].c->tqi = i;
-            heapifyup(q, i);
-            heapifydown(q, i);
+    if (c) {
+        i = c->tqi;
+        if (i < q->nw && q->w[i].c == c) {
+            /* only remove from heap if it's still registered */
+            if (i != --q->nw) {
+                /* if it's not the last element, we re-heapify */
+                q->w[i] = q->w[q->nw];
+                q->w[i].c->tqi = i;
+                heapifyup(q, i);
+                heapifydown(q, i);
+            }
         }
     }
 

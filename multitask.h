@@ -187,8 +187,7 @@ int tchansleep(Chan *c, uvlong nsec);
 
 typedef ssize_t (*IOFunc)(void *args, atomic_int *cancel);
 
-int iochaninit(Chan *c, size_t extrastack);
-Chan *iochannew(size_t extrastack);
+Chan *iochan(size_t extrastack);
 void iocall(Chan *c, IOFunc proc, const void *args, size_t argsz);
 ssize_t iocancel(Chan *c);
 

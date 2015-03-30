@@ -10,12 +10,6 @@
 typedef struct IOBegin IOBegin;
 typedef struct IOThread IOThread;
 
-struct IOBegin
-{
-    Chan *c;
-    Task *t;
-};
-
 struct IOThread
 {
     struct {
@@ -57,32 +51,28 @@ static void
 iothread( void *arg )
 {
     IOThread io;
-    Chan calloc;
-    Chan *c;
+    Chan c;
+
+    memset(&io, 0, sizeof(io));
+    _chaninit(&c, sizeof(ssize_t), 1, &io, false, CTIO);
+
+    /* initialize everything and dequeue ourselves */
+    atomic_init(&io.state, WAITING);
+    io.task = _taskdequeue();
+    io.ptid = pthread_self();
 
     {
-        IOBegin *iobeg = arg;
         int r;
-
-        if (!iobeg->c) { iobeg->c = &calloc; }
-        c = iobeg->c;
-        _chaninit(c, sizeof(ssize_t), 1, &io, false, CTIO);
-
-        /* initialize everything and dequeue ourselves */
-        memset(&io, 0, sizeof(io));
-        atomic_init(&io.state, WAITING);
-        io.task = _taskdequeue();
-        io.ptid = pthread_self();
-
         /* according to posix these can't fail lest you give bad args */
         r = sem_init(&io.sem, 0, 0);
         assert(r == 0);
         r = pthread_sigmask(SIG_SETMASK, &sigs, nil);
         assert(r == 0);
-
-        /* "rendezvous" the creating task */
-        _taskready(iobeg->t);
     }
+
+    /* can't use rendez because of _taskdequeue */
+    ((Task *)arg)->rendval = &c;
+    _taskready(arg);
 
     while (1) {
         IOFunc proc;
@@ -110,7 +100,7 @@ iothread( void *arg )
                 /* fall through */
             case CANCELED:
                 /* we must send before rendezvousing with the canceler */
-                if (proc) { chansendnb(c, &r); }
+                if (proc) { chansendnb(&c, &r); }
 
                 /* this request was cancelled so someone is waiting for us */
                 while (sem_wait(&io.sem) != 0) {
@@ -123,18 +113,14 @@ iothread( void *arg )
                 /* We send non-blocking for a couple of reasons. First off it
                  * doesn't even make sense to block here. Second, since we've
                  * dequeue'd ourselves already, blocking would be illegal */
-                chansendnb(c, &r);
+                chansendnb(&c, &r);
                 break;
         }
         if (!proc) { break; }
     }
 
-    while (sem_wait(&io.sem) != 0) {
-        assert(errno == EINTR);
-    }
-
     /* remove own cancel queue slot */
-    _tqremove(&cancelq, c, true, false);
+    _tqremove(&cancelq, &c, true, false);
     /* on sane systems this is a nop */
     sem_destroy(&io.sem);
 }
@@ -198,46 +184,28 @@ errout:
     return 0;
 }
 
-static Chan *
-newio( Chan *c,
-       size_t extrastack )
+Chan *
+iochan( size_t extrastack )
 {
-    IOBegin iobeg;
+    Task *self;
 
     /* initialize signal stuff */
     if (init() != 0) { return nil; }
     if (_tqalloc(&cancelq) != 0) { return nil; }
 
     /* dequeue self and wait for the created thread to put us back */
-    iobeg.c = c;
-    iobeg.t = _taskdequeue();
+    self = _taskdequeue();
 
     /* create the thread. The thread will init the channel */
-    if (threadcreate(iothread, &iobeg, PTHREAD_STACK_MIN + extrastack) < 0) {
-        /* undequeue because the thread wasn't created */
-        _taskundequeue(iobeg.t);
-        _tqremove(&cancelq, c, true, false);
+    if (threadcreate(iothread, self, PTHREAD_STACK_MIN + extrastack) < 0) {
+        _taskundequeue(self);
+        _tqremove(&cancelq, nil, true, false);
         return nil;
     }
 
     /* wait for the thread to be created and initialized */
     taskyield();
-
-    assert(iobeg.c);
-    return iobeg.c;
-}
-
-int
-iochaninit( Chan *c,
-            size_t extrastack )
-{
-    return newio(c, extrastack) ? 0 : -1;
-}
-
-Chan *
-iochannew( size_t extrastack )
-{
-    return newio(nil, extrastack);
+    return self->rendval;
 }
 
 static inline bool
@@ -270,7 +238,6 @@ void
 _iochanfree( Chan *c )
 {
     IOThread *io = c->buf;
-    int r;
 
     /* The channel lock is acquired here so to avoid races we need to unlock it
      * first. However upon return we're expected to hold the lock.
@@ -292,9 +259,6 @@ _iochanfree( Chan *c )
             break;
         }
     }
-
-    r = sem_post(&io->sem);
-    assert(r == 0);
 }
 
 /* TODO: When musl gets reliable cancellation, use that */
