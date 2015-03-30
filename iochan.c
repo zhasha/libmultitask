@@ -69,11 +69,9 @@ iothread( void *arg )
         _chaninit(c, sizeof(ssize_t), 1, &io, false, CTIO);
 
         /* initialize everything and dequeue ourselves */
+        memset(&io, 0, sizeof(io));
         atomic_init(&io.state, WAITING);
-        io.timeout = 0;
-        io.canceler = nil;
         io.task = _taskdequeue();
-        io.proc = nil;
         io.ptid = pthread_self();
 
         /* according to posix these can't fail lest you give bad args */
