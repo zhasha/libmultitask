@@ -137,6 +137,8 @@ chanfree( Chan *c )
 {
     CWaiter *w;
 
+    if (!c) { return; }
+
     lock(&c->lock);
     atomic_store(&c->closed, true);
 
