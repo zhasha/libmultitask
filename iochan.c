@@ -131,6 +131,10 @@ iothread( void *arg )
         if (!proc) { break; }
     }
 
+    while (sem_wait(&io.sem) != 0) {
+        assert(errno == EINTR);
+    }
+
     /* remove own cancel queue slot */
     _tqremove(&cancelq, c, true, false);
     /* on sane systems this is a nop */
@@ -268,6 +272,7 @@ void
 _iochanfree( Chan *c )
 {
     IOThread *io = c->buf;
+    int r;
 
     /* The channel lock is acquired here so to avoid races we need to unlock it
      * first. However upon return we're expected to hold the lock.
@@ -289,6 +294,9 @@ _iochanfree( Chan *c )
             break;
         }
     }
+
+    r = sem_post(&io->sem);
+    assert(r == 0);
 }
 
 /* TODO: When musl gets reliable cancellation, use that */
