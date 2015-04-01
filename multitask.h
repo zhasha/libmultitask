@@ -58,14 +58,14 @@ struct QLock
 {
     Lock l;
     atomic_int locked;
-    void *begin, *end;
+    void *volatile begin, *volatile end;
 };
 
 struct RWLock
 {
     Lock l;
     atomic_int locked;
-    void *begin, *end;
+    void *volatile begin, *volatile end;
 };
 
 void qlock(QLock *l);
@@ -86,8 +86,8 @@ typedef struct Queue Queue;
 
 struct Queue
 {
-    Lock lock;
-    void *begin, *end;
+    Lock l;
+    void *volatile begin, *volatile end;
 };
 
 void qwait(Queue *q);

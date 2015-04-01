@@ -7,16 +7,16 @@ void
 qwait( Queue *q )
 {
     Task *t = _taskdequeue();
-    atomic_store(&t->next, nil);
+    atomic_init(&t->next, nil);
 
-    lock(&q->lock);
+    lock(&q->l);
     if (!q->begin) {
         q->begin = t;
     } else {
-        atomic_store(&((Task *)q->end)->next, t);
+        atomic_init(&((Task *)q->end)->next, t);
     }
     q->end = t;
-    unlock(&q->lock);
+    unlock(&q->l);
 
     taskyield();
 }
@@ -27,7 +27,7 @@ qwake( Queue *q,
 {
     ulong i;
 
-    lock(&q->lock);
+    lock(&q->l);
     for (i = 0; i < n; ++i) {
         Task *t = q->begin;
         if (!t) { break; }
@@ -35,7 +35,7 @@ qwake( Queue *q,
         q->begin = atomic_load(&t->next);
         _taskready(t);
     }
-    unlock(&q->lock);
+    unlock(&q->l);
 
     return i;
 }

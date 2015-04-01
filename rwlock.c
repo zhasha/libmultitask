@@ -3,24 +3,14 @@
 #include <multitask.h>
 #include "multitask-impl.h"
 
-typedef struct QItem QItem;
-
-struct QItem
-{
-    QItem *next;
-    Task *task;
-    int rw;
-};
-
-enum { QR, QW };
+static void *const QR = (void *)0;
+static void *const QW = (void *)1;
 
 /* l->locked will be [0;INT_MAX-1] when reading and INT_MAX when writing */
 
 void
 rlock( RWLock *l )
 {
-    QItem qi;
-
     while (1) {
         int e = atomic_load(&l->locked);
 
@@ -30,16 +20,16 @@ rlock( RWLock *l )
 
         lock(&l->l);
         if (atomic_load(&l->locked) >= INT_MAX - 1) {
-            qi.next = nil;
-            qi.task = _taskdequeue();
-            qi.rw = QR;
+            Task *t, *self = _taskdequeue();
+            atomic_init(&self->next, nil);
+            self->rendval = QR;
 
-            if (l->begin) {
-                ((QItem *)l->begin)->next = &qi;
+            if ((t = l->begin) != nil) {
+                atomic_init(&t->next, self);
             } else {
-                l->begin = &qi;
+                l->begin = self;
             }
-            l->end = &qi;
+            l->end = self;
 
             unlock(&l->l);
             taskyield();
@@ -63,37 +53,35 @@ tryrlock( RWLock *l )
 void
 runlock( RWLock *l )
 {
-    QItem *qi = nil;
+    Task *t = nil;
     int e = atomic_fetch_sub(&l->locked, 1);
 
     if (e >= INT_MAX - 1) {
         /* try to wake a reader */
         lock(&l->l);
-        if ((qi = l->begin) != nil) {
-            if (qi->rw == QR) {
-                l->begin = qi->next;
+        if ((t = l->begin) != nil) {
+            if (t->rendval == QR) {
+                l->begin = atomic_load(&t->next);
             } else {
-                qi = nil;
+                t = nil;
             }
         }
         unlock(&l->l);
     } else if (e == 1) {
         /* try to wake writer */
         lock(&l->l);
-        if ((qi = l->begin) != nil) {
-            l->begin = qi->next;
+        if ((t = l->begin) != nil) {
+            l->begin = atomic_load(&t->next);
         }
         unlock(&l->l);
     }
 
-    if (qi) { _taskready(qi->task); }
+    if (t) { _taskready(t); }
 }
 
 void
 wlock( RWLock *l )
 {
-    QItem qi;
-
     while (1) {
         int e = atomic_load(&l->locked);
 
@@ -103,16 +91,16 @@ wlock( RWLock *l )
 
         lock(&l->l);
         if (atomic_load(&l->locked) > 0) {
-            qi.next = nil;
-            qi.task = _taskdequeue();
-            qi.rw = QW;
+            Task *t, *self = _taskdequeue();
+            atomic_init(&self->next, nil);
+            self->rendval = QW;
 
-            if (l->begin) {
-                ((QItem *)l->begin)->next = &qi;
+            if ((t = l->begin) != nil) {
+                atomic_init(&t->next, self);
             } else {
-                l->begin = &qi;
+                l->begin = self;
             }
-            l->end = &qi;
+            l->end = self;
 
             unlock(&l->l);
             taskyield();
@@ -136,14 +124,14 @@ trywlock( RWLock *l )
 void
 wunlock( RWLock *l )
 {
-    QItem *qi = nil;
+    Task *t = nil;
 
     atomic_store(&l->locked, 0);
     lock(&l->l);
-    if ((qi = l->begin) != nil) {
-        l->begin = qi->next;
+    if ((t = l->begin) != nil) {
+        l->begin = atomic_load(&t->next);
     }
     unlock(&l->l);
 
-    if (qi) { _taskready(qi->task); }
+    if (t) { _taskready(t); }
 }

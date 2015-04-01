@@ -3,18 +3,6 @@
 #include <multitask.h>
 #include "multitask-impl.h"
 
-#include <pthread.h>
-
-typedef struct Rendez Rendez;
-
-struct Rendez
-{
-    Rendez *next;
-    void *tag;
-    void *value;
-    Task *task;
-};
-
 #define HTSZ 16
 
 static inline uint
@@ -33,40 +21,40 @@ void *
 rendez( void *tag,
         void *value )
 {
-    static struct { Rendez *r; Lock l; } ht[HTSZ];
+    static struct { Task *volatile t; Lock l; } ht[HTSZ];
+
     uint h = hash(tag) % HTSZ;
-    Rendez *r, *p, sr;
+    Task *o, *p, *self;
 
     _threadblocksigs();
     lock(&ht[h].l);
-    for (p = nil, r = ht[h].r; r != nil; p = r, r = r->next) {
-        if (r->tag == tag) {
+    for (p = nil, o = ht[h].t; o != nil; p = o, o = atomic_load(&o->next)) {
+        if (o->rendtag == tag) {
             /* found the same tag, exchange values */
-            void *rval = r->value;
-            r->value = value;
+            void *other = o->rendval;
+            o->rendval = value;
 
-            /* pull struct out of ht */
             if (p) {
-                p->next = r->next;
+                atomic_init(&p->next, atomic_load(&o->next));
             } else {
-                ht[h].r = r->next;
+                ht[h].t = atomic_load(&o->next);
             }
 
             /* resume the waiting task */
             unlock(&ht[h].l);
             _threadunblocksigs();
-            _taskready(r->task);
+            _taskready(o);
 
-            return rval;
+            return other;
         }
     }
 
     /* no such rendezvous tag, so fill one out and insert it */
-    sr.tag = tag;
-    sr.value = value;
-    sr.task = _taskdequeue();
-    sr.next = ht[h].r;
-    ht[h].r = &sr;
+    self = _taskdequeue();
+    self->rendtag = tag;
+    self->rendval = value;
+    atomic_init(&self->next, ht[h].t);
+    ht[h].t = self;
 
     /* unlock and wait for rendezvous */
     unlock(&ht[h].l);
@@ -74,7 +62,7 @@ rendez( void *tag,
     taskyield();
 
     /* return exchanged value */
-    return sr.value;
+    return self->rendval;
 }
 
 void *

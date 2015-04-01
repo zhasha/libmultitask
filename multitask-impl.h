@@ -16,7 +16,8 @@ struct Task
     Tls *tls;
 
     /* rendez */
-    void *rendval;
+    void *volatile rendtag;
+    void *volatile rendval;
 
     /* thread function */
     void (*fn)(void *);
