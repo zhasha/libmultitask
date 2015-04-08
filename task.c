@@ -21,7 +21,6 @@ struct Tls
     jmp_buf ptctx;
 
     /* signal stack */
-    Lock sigstacklock;
     void *sigstack;
 };
 
@@ -341,7 +340,7 @@ int
 threadsigstack( size_t stacksize )
 {
     stack_t ss;
-    void *oldstk, *stk = nil;
+    void *stk = nil;
 
     if (stacksize == 0) {
         /* remove alt stack */
@@ -358,16 +357,10 @@ threadsigstack( size_t stacksize )
         ss.ss_size = stacksize;
     }
 
-    lock(&tasks->sigstacklock);
-    if (sigaltstack(&ss, nil) != 0) {
-        unlock(&tasks->sigstacklock);
-        return -1;
-    }
-    oldstk = tasks->sigstack;
+    if (sigaltstack(&ss, nil) != 0) { return -1; }
+    free(tasks->sigstack);
     tasks->sigstack = stk;
-    unlock(&tasks->sigstacklock);
 
-    free(oldstk);
     return 0;
 }
 
