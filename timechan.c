@@ -33,11 +33,18 @@ init( void )
     return 0;
 }
 
+static void
+dtor( Chan *c )
+{
+    _tqremove(&timeq, c, true, false);
+    if (c->buf) { free(c); }
+}
+
 int
 tchaninit( Chan *c )
 {
     if (init() != 0) { return -1; }
-    _chaninit(c, 0, 1, nil, false, CTTIME);
+    _chaninit(c, 0, 1, nil, dtor);
     return _tqalloc(&timeq);
 }
 
@@ -51,19 +58,13 @@ tchannew( void )
     c = malloc(sizeof(Chan));
     if (!c) { return nil; }
 
-    _chaninit(c, 0, 1, nil, true, CTTIME);
+    _chaninit(c, 0, 1, (void *)1, dtor);
     if (_tqalloc(&timeq) != 0) {
         free(c);
         return nil;
     }
 
     return c;
-}
-
-void
-_tchanfree( Chan *c )
-{
-    _tqremove(&timeq, c, true, false);
 }
 
 void

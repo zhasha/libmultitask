@@ -25,18 +25,13 @@ struct Elem
 static char _closed = '\0';
 static void *const closed = &_closed;
 
-#define HEAPBIT 0x80
-
 void
 _chaninit( Chan *c,
            size_t elemsz,
            size_t nelem,
            void *buf,
-           bool heap,
-           int type )
+           void (*dtor)(Chan *) )
 {
-    c->type = (uint8)(type | (heap ? HEAPBIT : 0));
-
     assert(elemsz <= (uint16)-1 && nelem <= (uint32)-1);
     c->elemsz = (uint16)elemsz;
     c->nelem = (uint32)nelem;
@@ -57,10 +52,10 @@ _chaninit( Chan *c,
     atomic_init(&c->sendq.last, nil);
     atomic_init(&c->recvq.first, nil);
     atomic_init(&c->recvq.last, nil);
-
-    c->refs = 0;
-    atomic_init(&c->closed, false);
     memset(&c->lock, 0, sizeof(c->lock));
+
+    atomic_init(&c->closed, false);
+    c->dtor = dtor;
 
     c->tqi = 0;
 }
@@ -79,7 +74,7 @@ chaninit( Chan *c,
         buf = calloc(nelem, sizeof(Elem) + elemsz);
         if (!buf) { return -1; }
     }
-    _chaninit(c, elemsz, nelem, buf, false, CTNORMAL);
+    _chaninit(c, elemsz, nelem, buf, nil);
 
     return 0;
 }
@@ -102,45 +97,23 @@ channew( size_t elemsz,
     }
     if (!c) { return nil; }
 
-    _chaninit(c, elemsz, nelem, buf, true, CTNORMAL);
+    _chaninit(c, elemsz, nelem, buf, nil);
 
     return c;
 }
 
-static inline void
-_chanref( Chan *c )
-{
-    c->refs++;
-}
-
-static ulong
-_chanunref( Chan *c )
-{
-    ulong refs = c->refs--;
-    if (refs == 0) {
-        switch (c->type & ~HEAPBIT) {
-            case CTTIME: _tchanfree(c); break;
-            case CTIO: _iochanfree(c); return 0;
-        }
-
-        unlock(&c->lock);
-
-        if (c->elemsz > 0) {
-            free((c->type & HEAPBIT) ? c : c->buf);
-        }
-    }
-    return refs;
-}
-
 void
-chanfree( Chan *c )
+chanclose( Chan *c )
 {
     CWaiter *w;
 
-    if (!c) { return; }
+    if (atomic_load(&c->closed)) { return; }
 
     lock(&c->lock);
-    atomic_store(&c->closed, true);
+    if (atomic_exchange(&c->closed, true)) {
+        unlock(&c->lock);
+        return;
+    }
 
     if ((w = atomic_load(&c->sendq.first)) == nil) {
         w = atomic_load(&c->recvq.first);
@@ -158,9 +131,22 @@ chanfree( Chan *c )
     atomic_store(&c->sendq.last, nil);
     atomic_store(&c->recvq.first, nil);
     atomic_store(&c->recvq.last, nil);
+    unlock(&c->lock);
+}
 
-    if (_chanunref(c) != 0) {
-        unlock(&c->lock);
+void
+chanfree( Chan *c )
+{
+    if (!c) { return; }
+
+    chanclose(c);
+
+    if (c->dtor) {
+        (c->dtor)(c);
+    } else {
+        if (c->buf == c + 1 || c->elemsz > 0) {
+            free((c->buf == c + 1) ? c : c->buf);
+        }
     }
 }
 
@@ -652,7 +638,6 @@ alt( Alt *alts )
                 unlock(&c->lock);
                 break;
             }
-            _chanref(c);
             unlock(&c->lock);
         }
         _threadunblocksigs();
@@ -680,9 +665,7 @@ alt( Alt *alts )
             } else {
                 removewaiter(q, &a->impl.waiter);
             }
-            if (_chanunref(c) != 0) {
-                unlock(&c->lock);
-            }
+            unlock(&c->lock);
 
             if (c == as.completer) { completer = a; }
         }

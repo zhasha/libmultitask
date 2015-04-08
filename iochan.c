@@ -47,6 +47,8 @@ enum {
 static sigset_t sigs;
 static TimeQueue cancelq;
 
+static void dtor(Chan *c);
+
 static void
 iothread( void *arg )
 {
@@ -54,7 +56,7 @@ iothread( void *arg )
     Chan c;
 
     memset(&io, 0, sizeof(io));
-    _chaninit(&c, sizeof(ssize_t), 1, &io, false, CTIO);
+    _chaninit(&c, sizeof(ssize_t), 1, &io, dtor);
 
     /* initialize everything and dequeue ourselves */
     atomic_init(&io.state, WAITING);
@@ -234,20 +236,10 @@ _iocancel( Chan *c,
     return true;
 }
 
-void
-_iochanfree( Chan *c )
+static void
+dtor( Chan *c )
 {
     IOThread *io = c->buf;
-
-    /* The channel lock is acquired here so to avoid races we need to unlock it
-     * first. However upon return we're expected to hold the lock.
-     * What we want to avoid is:
-     * - the proc has run (or is running)
-     * - we acquire the lock
-     * - someone else cancels the proc before us
-     * - chansendnb cannot acquire the lock because we hold it
-     */
-    unlock(&c->lock);
 
     while (!_iocancel(c, MORIBUND)) {
         int r = WAITING;

@@ -57,15 +57,7 @@ void _threadblocksigs(void);
 /* unblock (allow) delivery of all signals */
 void _threadunblocksigs(void);
 
-enum {
-    CTNORMAL,
-    CTTIME,
-    CTIO
-};
-
-void _chaninit(Chan *c, size_t elemsz, size_t nelem, void *buf, bool heap, int type);
-void _tchanfree(Chan *c);
-void _iochanfree(Chan *c);
+void _chaninit(Chan *c, size_t elemsz, size_t nelem, void *buf, void (*dtor)(Chan *));
 
 typedef struct TimeQueue TimeQueue;
 typedef struct Waiter Waiter;

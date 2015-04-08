@@ -104,8 +104,6 @@ typedef struct Chan Chan;
 
 struct Chan
 {
-    uint8 type;
-
     /* buffer (implemented as a queue) */
     uint16 elemsz;
     uint32 nelem;
@@ -119,19 +117,20 @@ struct Chan
     struct LibmultitaskChanInternalQueue {
         _Atomic(struct LibmultitaskChanInternalWaiter *) first, last;
     } sendq, recvq;
+    Lock lock;
 
     /* resource management */
     atomic_bool closed;
-    ulong refs;
-    Lock lock;
+    void (*dtor)(Chan *);
 
     /* index for time queue */
-    size_t tqi;
+    volatile size_t tqi;
 };
 
 int chaninit(Chan *c, size_t elemsz, size_t nelem);
 Chan *channew(size_t elemsz, size_t nelem);
-void chanfree(Chan *chan);
+void chanclose(Chan *c);
+void chanfree(Chan *c);
 int chansend(Chan *c, const void *v);
 int chansendnb(Chan *c, const void *v);
 int chanrecv(Chan *c, void *v);

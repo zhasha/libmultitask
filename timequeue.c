@@ -114,6 +114,8 @@ _tqinsert( TimeQueue *q,
     int r;
     size_t ti;
 
+    if (atomic_load(&c->closed)) { return; }
+
     _tqremove(q, c, false, flush);
     if (nsec == 0) { return; }
 
