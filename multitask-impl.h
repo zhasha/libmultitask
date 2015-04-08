@@ -32,29 +32,20 @@ struct Task
     void *mem;
 };
 
-/* prepare the task t for use */
-void _tasksetjmp(jmp_buf env, void *stack, Task *t);
-
 /* insert a processor pause */
 void _taskspin(void);
-
-/* task entry point */
-noreturn void _taskstart(Task *t);
 
 /* insert a task into the ready queue */
 void _taskready(Task *t);
 
-/* pop the current task out of readiness */
-Task *_taskdequeue(void);
-
-/* for arendez and alike, where you must pop the task but possibly put it back
+/* pop the current task out of readiness.
+ * for arendez and alike, where you must pop the task but possibly put it back
  * after doing some atomic magic. _taskready is unsuited for this */
+Task *_taskdequeue(void);
 void _taskundequeue(Task *t);
 
-/* block (delay) delivery of all signals */
+/* (un)block (delay) delivery of all signals */
 void _threadblocksigs(void);
-
-/* unblock (allow) delivery of all signals */
 void _threadunblocksigs(void);
 
 void _chaninit(Chan *c, size_t elemsz, size_t nelem, void *buf, void (*dtor)(Chan *));

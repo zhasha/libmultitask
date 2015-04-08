@@ -29,6 +29,9 @@ static thread_local Tls *tasks;
 #define DEAD(t) (!t->stack)
 #define DIE(t) do { t->stack = nil; } while (0)
 
+void _tasksetjmp(jmp_buf env, void *stack, Task *t);
+noreturn void _taskstart(Task *t);
+
 noreturn void
 _taskstart( Task *t )
 {
