@@ -3,8 +3,7 @@
 #include <multitask.h>
 #include "multitask-impl.h"
 
-static void *const QR = (void *)0;
-static void *const QW = (void *)1;
+enum { QR, QW };
 
 /* l->locked will be [0;INT_MAX-1] when reading and INT_MAX when writing */
 
@@ -21,11 +20,11 @@ rlock( RWLock *l )
         lock(&l->l);
         if (atomic_load(&l->locked) >= INT_MAX - 1) {
             Task *t, *self = _taskdequeue();
-            atomic_init(&self->next, nil);
-            self->rendval = QR;
+            self->next = nil;
+            self->qtype = QR;
 
             if ((t = l->begin) != nil) {
-                atomic_init(&t->next, self);
+                t->next = self;
             } else {
                 l->begin = self;
             }
@@ -60,8 +59,8 @@ runlock( RWLock *l )
         /* try to wake a reader */
         lock(&l->l);
         if ((t = l->begin) != nil) {
-            if (t->rendval == QR) {
-                l->begin = atomic_load(&t->next);
+            if (t->qtype == QR) {
+                l->begin = t->next;
             } else {
                 t = nil;
             }
@@ -71,7 +70,7 @@ runlock( RWLock *l )
         /* try to wake writer */
         lock(&l->l);
         if ((t = l->begin) != nil) {
-            l->begin = atomic_load(&t->next);
+            l->begin = t->next;
         }
         unlock(&l->l);
     }
@@ -92,11 +91,11 @@ wlock( RWLock *l )
         lock(&l->l);
         if (atomic_load(&l->locked) > 0) {
             Task *t, *self = _taskdequeue();
-            atomic_init(&self->next, nil);
-            self->rendval = QW;
+            self->next = nil;
+            self->qtype = QW;
 
             if ((t = l->begin) != nil) {
-                atomic_init(&t->next, self);
+                t->next = self;
             } else {
                 l->begin = self;
             }
@@ -129,7 +128,7 @@ wunlock( RWLock *l )
     atomic_store(&l->locked, 0);
     lock(&l->l);
     if ((t = l->begin) != nil) {
-        l->begin = atomic_load(&t->next);
+        l->begin = t->next;
     }
     unlock(&l->l);
 

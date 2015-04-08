@@ -26,6 +26,9 @@ struct Tls
 
 static thread_local Tls *tasks;
 
+#define DEAD(t) (!t->stack)
+#define DIE(t) do { t->stack = nil; } while (0)
+
 noreturn void
 _taskstart( Task *t )
 {
@@ -39,11 +42,11 @@ enqueue( Task *t )
     Task *p;
     bool sig;
 
-    atomic_store(&t->next, nil);
+    atomic_store(&t->anext, nil);
     p = atomic_exchange(&t->tls->readyend, t);
     sig = (uintptr)p & 1;
     p = (Task *)((uintptr)p & ~(uintptr)1);
-    atomic_store(&p->next, t);
+    atomic_store(&p->anext, t);
 
     return sig;
 }
@@ -119,10 +122,9 @@ inittask( Task *t,
           void *stack,
           size_t stacksize )
 {
-    atomic_init(&t->next, nil);
+    atomic_init(&t->anext, nil);
     t->stacksize = stacksize;
     t->stack = stack;
-    t->dead = false;
     t->tls = tasks;
     t->fn = fn;
     t->arg = arg;
@@ -168,7 +170,7 @@ static inline Task *
 rrtask( void )
 {
     Task *q, *c = tasks->cur;
-    bool calive = !c->dead && !tasks->popped;
+    bool calive = !DEAD(c) && !tasks->popped;
 
     /* really fast single task path */
     if (calive && tasks->ntasks == 1) { return nil; }
@@ -177,7 +179,7 @@ rrtask( void )
     while (1) {
         Task *n;
 
-        n = atomic_load(&q->next);
+        n = atomic_load(&q->anext);
         if (q == &tasks->readystub) {
             /* we got the stub element so look at the next one */
             if (!n) {
@@ -189,7 +191,7 @@ rrtask( void )
             }
             tasks->ready = n;
             q = n;
-            n = atomic_load(&n->next);
+            n = atomic_load(&n->anext);
         }
 
         if (n) {
@@ -210,7 +212,7 @@ rrtask( void )
         enqueue(&tasks->readystub);
 
         /* try to extract element again */
-        n = atomic_load(&q->next);
+        n = atomic_load(&q->anext);
         if (n) {
             tasks->ready = n;
             goto trypopq;
@@ -236,7 +238,7 @@ popwait:
 
 trypopq:
         /* if q is dead, free it and try again */
-        if (q->dead) {
+        if (DEAD(q)) {
             assert(q != &tasks->readystub);
             freetask(q);
             q = tasks->ready;
@@ -245,7 +247,7 @@ trypopq:
         /* if c was not popped or is dead, reinsert it into the list. In the
          * first case so that it can be rescheduled and in the latter case so
          * the above code can cull it once we jump away from its stack */
-        if (!tasks->popped || c->dead) { enqueue(c); }
+        if (!tasks->popped || DEAD(c)) { enqueue(c); }
         tasks->popped = false;
         return q;
     }
@@ -265,9 +267,8 @@ threadstart( void *arg )
     tls.cur = t;
     tls.ready = &tls.readystub;
     atomic_init(&tls.readyend, &tls.readystub);
-    atomic_init(&tls.readystub.next, nil);
+    atomic_init(&tls.readystub.anext, nil);
     tls.readystub.tls = &tls;
-    tls.readystub.dead = false;
     tls.ntasks = 1;
     tls.popped = false;
     r = sem_init(&tls.sem, 0, 0);
@@ -287,7 +288,7 @@ threadstart( void *arg )
     /* reap all dead tasks */
     t = tls.ready;
     while (t) {
-        Task *n = atomic_load(&t->next);
+        Task *n = atomic_load(&t->anext);
         if (t != &tls.readystub) { freetask(t); }
         t = n;
     }
@@ -455,7 +456,7 @@ taskexit( void )
     Task *c = tasks->cur;
 
     /* mark thread as dead so it will be culled later */
-    c->dead = true;
+    DIE(c);
 
     if (--tasks->ntasks == 0) {
         /* push self to queue so the OS thread can reap us */

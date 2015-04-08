@@ -14,9 +14,9 @@ qlock( QLock *l )
     if ((i = atomic_exchange(&l->locked, 1)) != 0) {
         Task *t = _taskdequeue();
 
-        atomic_store(&t->next, nil);
+        t->next = nil;
         if (l->begin) {
-            atomic_store(&((Task *)l->end)->next, t);
+            ((Task *)l->end)->next = t;
         } else {
             l->begin = t;
         }
@@ -43,7 +43,7 @@ qunlock( QLock *l )
     lock(&l->l);
     t = l->begin;
     if (t) {
-        l->begin = atomic_load(&t->next);
+        l->begin = t->next;
     } else {
         atomic_store(&l->locked, 0);
     }

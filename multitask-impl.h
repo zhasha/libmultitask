@@ -3,7 +3,11 @@ typedef struct Tls Tls;
 
 struct Task
 {
-    _Atomic(Task *) next;
+    union {
+        _Atomic(Task *) anext;
+        Task *volatile next;
+    };
+    Tls *tls;
 
     /* stack context */
     jmp_buf ctx;
@@ -11,17 +15,18 @@ struct Task
     size_t stacksize;
     void *stack;
 
-    /* sync stuff */
-    bool dead;
-    Tls *tls;
-
-    /* rendez */
-    void *volatile rendtag;
-    void *volatile rendval;
-
-    /* thread function */
-    void (*fn)(void *);
-    void *arg;
+    /* synchronization stuff */
+    union {
+        int qtype;
+        struct {
+            void *volatile rendtag;
+            void *volatile rendval;
+        };
+        struct {
+            void (*fn)(void *);
+            void *arg;
+        };
+    };
 
     /* pointer returned by malloc */
     void *mem;

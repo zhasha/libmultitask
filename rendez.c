@@ -28,16 +28,16 @@ rendez( void *tag,
 
     _threadblocksigs();
     lock(&ht[h].l);
-    for (p = nil, o = ht[h].t; o != nil; p = o, o = atomic_load(&o->next)) {
+    for (p = nil, o = ht[h].t; o != nil; p = o, o = o->next) {
         if (o->rendtag == tag) {
             /* found the same tag, exchange values */
             void *other = o->rendval;
             o->rendval = value;
 
             if (p) {
-                atomic_init(&p->next, atomic_load(&o->next));
+                p->next = o->next;
             } else {
-                ht[h].t = atomic_load(&o->next);
+                ht[h].t = o->next;
             }
 
             /* resume the waiting task */
@@ -53,7 +53,7 @@ rendez( void *tag,
     self = _taskdequeue();
     self->rendtag = tag;
     self->rendval = value;
-    atomic_init(&self->next, ht[h].t);
+    self->next = ht[h].t;
     ht[h].t = self;
 
     /* unlock and wait for rendezvous */

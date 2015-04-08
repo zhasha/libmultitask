@@ -7,13 +7,13 @@ void
 qwait( Queue *q )
 {
     Task *t = _taskdequeue();
-    atomic_init(&t->next, nil);
+    t->next = nil;
 
     lock(&q->l);
     if (!q->begin) {
         q->begin = t;
     } else {
-        atomic_init(&((Task *)q->end)->next, t);
+        ((Task *)q->end)->next = t;
     }
     q->end = t;
     unlock(&q->l);
@@ -32,7 +32,7 @@ qwake( Queue *q,
         Task *t = q->begin;
         if (!t) { break; }
 
-        q->begin = atomic_load(&t->next);
+        q->begin = t->next;
         _taskready(t);
     }
     unlock(&q->l);
