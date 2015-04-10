@@ -32,7 +32,7 @@ _chaninit( Chan *c,
            void *buf,
            void (*dtor)(Chan *) )
 {
-    assert(elemsz <= (uint16)-1 && nelem <= (uint32)-1);
+    assert(elemsz <= (uint16)-1 - sizeof(Elem) && nelem <= (uint32)-1);
     memset(c, 0, sizeof(*c));
 
     c->elemsz = (uint16)elemsz;
@@ -54,8 +54,10 @@ chaninit( Chan *c,
 {
     void *buf = nil;
 
-    if (elemsz > (uint16)-1 - sizeof(Elem) ||
-        nelem > (uint32)-1) { return -1; }
+    if (elemsz > (uint16)-1 - sizeof(Elem) || nelem > (uint32)-1) {
+        errno = EINVAL;
+        return -1;
+    }
 
     if (nelem > 0 && elemsz > 0) {
         buf = calloc(nelem, sizeof(Elem) + elemsz);
@@ -73,8 +75,10 @@ channew( size_t elemsz,
     Chan *c;
     void *buf = nil;
 
-    if (elemsz > (uint16)-1 - sizeof(Elem) ||
-        nelem > (uint32)-1) { return nil; }
+    if (elemsz > (uint16)-1 - sizeof(Elem) || nelem > (uint32)-1) {
+        errno = EINVAL;
+        return nil;
+    }
 
     if (elemsz > 0 && nelem > 0) {
         c = xcalloc(sizeof(*c), nelem, sizeof(Elem) + elemsz);
