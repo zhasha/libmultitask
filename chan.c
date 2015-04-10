@@ -25,6 +25,23 @@ struct Elem
 static char _closed = '\0';
 static void *const closed = &_closed;
 
+static inline int
+checksizes( size_t elemsz,
+            size_t nelem )
+{
+    if (elemsz > (uint16)-1 - sizeof(Elem) || nelem > (uint32)-1) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (nelem > 0) {
+        if ((size_t)-1 / nelem < elemsz + sizeof(Elem)) {
+            errno = ENOMEM;
+            return -1;
+        }
+    }
+    return 0;
+}
+
 void
 _chaninit( Chan *c,
            size_t elemsz,
@@ -32,7 +49,7 @@ _chaninit( Chan *c,
            void *buf,
            void (*dtor)(Chan *) )
 {
-    assert(elemsz <= (uint16)-1 - sizeof(Elem) && nelem <= (uint32)-1);
+    assert(checksizes(elemsz, nelem) == 0);
     memset(c, 0, sizeof(*c));
 
     c->elemsz = (uint16)elemsz;
@@ -54,14 +71,18 @@ chaninit( Chan *c,
 {
     void *buf = nil;
 
-    if (elemsz > (uint16)-1 - sizeof(Elem) || nelem > (uint32)-1) {
-        errno = EINVAL;
-        return -1;
-    }
+    if (checksizes(elemsz, nelem) != 0) { return -1; }
 
     if (nelem > 0 && elemsz > 0) {
-        buf = calloc(nelem, sizeof(Elem) + elemsz);
-        if (!buf) { return -1; }
+        if (nelem * (elemsz + sizeof(Elem)) <= sizeof(c->tqi)) {
+            /* tqi isn't used in regular channels, so we can abuse it to avoid
+             * a size_t sized malloc, which on 64-bit systems would correspond
+             * to a single int buffer */
+            buf = (void *)&c->tqi;
+        } else {
+            buf = malloc(nelem * (sizeof(Elem) + elemsz));
+            if (!buf) { return -1; }
+        }
     }
     _chaninit(c, elemsz, nelem, buf, nil);
 
@@ -75,13 +96,10 @@ channew( size_t elemsz,
     Chan *c;
     void *buf = nil;
 
-    if (elemsz > (uint16)-1 - sizeof(Elem) || nelem > (uint32)-1) {
-        errno = EINVAL;
-        return nil;
-    }
+    if (checksizes(elemsz, nelem) != 0) { return nil; }
 
     if (elemsz > 0 && nelem > 0) {
-        c = xcalloc(sizeof(*c), nelem, sizeof(Elem) + elemsz);
+        c = xmalloc(sizeof(*c), nelem * (sizeof(Elem) + elemsz));
         buf = c + 1;
     } else {
         c = malloc(sizeof(*c));
@@ -135,7 +153,7 @@ chanfree( Chan *c )
     if (c->dtor) {
         (c->dtor)(c);
     } else {
-        if (c->buf == c + 1 || c->elemsz > 0) {
+        if (c->buf == c + 1 || (c->elemsz > 0 && c->buf != &c->tqi)) {
             free((c->buf == c + 1) ? c : c->buf);
         }
     }
