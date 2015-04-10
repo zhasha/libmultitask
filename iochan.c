@@ -152,35 +152,38 @@ xsig( int sig )
 static int
 init( void )
 {
-    static atomic_int inited = ATOMIC_VAR_INIT(0);
+    static atomic_int inited;
     static Lock initlock;
 
     if (atomic_load(&inited) == 0) {
-        int r = 0;
-
         lock(&initlock);
         if (atomic_load(&inited) == 0) {
             struct sigaction sa;
+            int r;
+
+            /* init cancellation time queue */
+            if (_tqinit(&cancelq, cancelcb) != 0) {
+                unlock(&initlock);
+                return -1;
+            }
 
             /* create a sigset with only SIGCANCEL unblocked */
-            if ((r = sigfillset(&sigs)) != 0) { goto errout; }
-            if ((r = sigdelset(&sigs, SIGCANCEL)) != 0) { goto errout; }
+            r = sigfillset(&sigs);
+            assert(r == 0);
+            r = sigdelset(&sigs, SIGCANCEL);
+            assert(r == 0);
 
             /* register a dummy signal handler */
             sa.sa_handler = xsig;
             sa.sa_flags = SA_ONSTACK;
-            if ((r = sigfillset(&sa.sa_mask)) != 0) { goto errout; }
-            if ((r = sigaction(SIGCANCEL, &sa, nil)) != 0) { goto errout; }
-
-            /* init time queue (last because it's stateful) */
-            if ((r = _tqinit(&cancelq, cancelcb)) != 0) { goto errout; }
+            r = sigfillset(&sa.sa_mask);
+            assert(r == 0);
+            r = sigaction(SIGCANCEL, &sa, nil);
+            assert(r == 0);
 
             atomic_store(&inited, 1);
         }
-errout:
         unlock(&initlock);
-
-        if (r) { return -1; }
     }
 
     return 0;
@@ -244,8 +247,6 @@ dtor( Chan *c )
     while (!_iocancel(c, MORIBUND)) {
         int r = WAITING;
         if (atomic_compare_exchange_strong(&io->state, &r, MORIBUND)) {
-            /* in here we don't need to release the lock, as the iothread will
-             * not try to chansendnb anything */
             io->proc = nil;
             _taskready(io->task);
             break;

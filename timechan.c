@@ -15,7 +15,7 @@ timecb( Chan *c )
 static int
 init( void )
 {
-    static atomic_int inited = ATOMIC_VAR_INIT(0);
+    static atomic_int inited;
     static Lock initlock;
 
     if (atomic_load(&inited) == 0) {

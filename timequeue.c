@@ -241,16 +241,10 @@ timethread( void *arg )
         uvlong res;
 
         /* no timechan waiters, so wait for some */
-        while (q->nw == 0) {
+        while (q->nw == 0 && !q->stop) {
             pthread_cond_wait(&q->cond, &q->mtx);
-
-            if (q->stop) {
-                free(q->w);
-                r = pthread_mutex_unlock(&q->mtx);
-                assert(r == 0);
-                return;
-            }
         }
+        if (q->stop) { break; }
 
         /* wait for the timeout */
         w = q->w[0];
@@ -277,6 +271,8 @@ timethread( void *arg )
     }
     r = pthread_mutex_unlock(&q->mtx);
     assert(r == 0);
+
+    free(q->w);
 }
 
 int
@@ -284,6 +280,8 @@ _tqinit( TimeQueue *q,
          uvlong (*cb)(Chan *) )
 {
     pthread_condattr_t cattr, *ca = nil;
+
+    memset(q, 0, sizeof(*q));
 
     /* try to set a better clock source */
     q->clock = CLOCK_REALTIME;
@@ -320,13 +318,6 @@ _tqinit( TimeQueue *q,
         pthread_cond_destroy(&q->cond);
         return -1;
     }
-
-    q->w = nil;
-    q->nw = 0;
-    q->nalloc = 0;
-    q->nneed = 0;
-    q->stop = 0;
-
     q->cb = cb;
 
     /* start the time thread */

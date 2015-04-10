@@ -33,31 +33,18 @@ _chaninit( Chan *c,
            void (*dtor)(Chan *) )
 {
     assert(elemsz <= (uint16)-1 && nelem <= (uint32)-1);
+    memset(c, 0, sizeof(*c));
+
     c->elemsz = (uint16)elemsz;
     c->nelem = (uint32)nelem;
-    if (elemsz == 0) {
-        atomic_init(&c->count, 0);
-    } else {
-        if ((c->buf = buf) != nil) {
-            uint32 i;
-            for (i = 0; i < c->nelem; ++i) {
-                atomic_init(&((Elem *)c->buf + i)->lap, 0);
-            }
-        }
+    if (elemsz > 0 && nelem > 0 && buf) {
+        c->buf = buf;
+        memset(buf, 0, nelem * (sizeof(Elem) + elemsz));
     }
-    atomic_store(&c->sendx, 0);
-    atomic_store(&c->recvx, (uint64)1 << 32);
+    atomic_init(&c->sendx, 0);
+    atomic_init(&c->recvx, (uint64)1 << 32);
 
-    atomic_init(&c->sendq.first, nil);
-    atomic_init(&c->sendq.last, nil);
-    atomic_init(&c->recvq.first, nil);
-    atomic_init(&c->recvq.last, nil);
-    memset(&c->lock, 0, sizeof(c->lock));
-
-    atomic_init(&c->closed, false);
     c->dtor = dtor;
-
-    c->tqi = 0;
 }
 
 int

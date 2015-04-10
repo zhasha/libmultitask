@@ -66,7 +66,7 @@ struct TimeQueue
 
     uvlong (*cb)(Chan *c);
 
-    int stop;
+    volatile int stop;
 };
 
 void _tqinsert(TimeQueue *q, Chan *c, uvlong nsec, bool flush);
