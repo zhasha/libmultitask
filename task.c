@@ -348,7 +348,11 @@ threadsigstack( size_t stacksize )
 
     if (stacksize == 0) {
         /* remove alt stack */
+        if (!tasks->sigstack) { return 0; }
+
+        ss.ss_sp = nil;
         ss.ss_flags = SS_DISABLE;
+        ss.ss_size = 0;
     } else {
         /* exchange alt stack */
         if (stacksize < MINSIGSTKSZ) { stacksize = MINSIGSTKSZ; }
