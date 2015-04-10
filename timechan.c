@@ -37,7 +37,13 @@ static void
 dtor( Chan *c )
 {
     _tqremove(&timeq, c, true, false);
-    if (c->buf) { free(c); }
+}
+
+static void
+dtorheap( Chan *c )
+{
+    dtor(c);
+    free(c);
 }
 
 int
@@ -58,7 +64,7 @@ tchannew( void )
     c = malloc(sizeof(Chan));
     if (!c) { return nil; }
 
-    _chaninit(c, 0, 1, (void *)1, dtor);
+    _chaninit(c, 0, 1, nil, dtorheap);
     if (_tqalloc(&timeq) != 0) {
         free(c);
         return nil;
