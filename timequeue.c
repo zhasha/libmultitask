@@ -300,7 +300,7 @@ _tqinit( TimeQueue *q,
         };
         uint i;
 
-        for (i = 0; i < sizeof(clocks)/sizeof(*clocks); ++i) {
+        for (i = 0; i < nelem(clocks); ++i) {
             if (pthread_condattr_setclock(&cattr, clocks[i]) == 0) {
                 q->clock = clocks[i];
                 break;

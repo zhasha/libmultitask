@@ -23,6 +23,8 @@
 #define thread_local _Thread_local
 #endif
 
+#define nelem(x) (sizeof(x)/sizeof(*(x)))
+
 typedef unsigned char byte;
 
 typedef unsigned int uint;
