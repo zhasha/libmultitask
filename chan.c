@@ -29,12 +29,12 @@ static inline int
 checksizes( size_t elemsz,
             size_t nelem )
 {
-    if (elemsz > (uint16)-1 - sizeof(Elem) || nelem > (uint32)-1) {
+    if (elemsz > (uint16)-1 || nelem > (uint32)-1) {
         errno = EINVAL;
         return -1;
     }
     if (nelem > 0) {
-        if ((size_t)-1 / nelem < elemsz + sizeof(Elem)) {
+        if ((size_t)-1 / nelem < sizeof(Elem) + elemsz) {
             errno = ENOMEM;
             return -1;
         }
@@ -56,7 +56,7 @@ _chaninit( Chan *c,
     c->nelem = (uint32)nelem;
     if (elemsz > 0 && nelem > 0 && buf) {
         c->buf = buf;
-        memset(buf, 0, nelem * (sizeof(Elem) + elemsz));
+        memset(buf, 0, (sizeof(Elem) + elemsz) * nelem);
     }
     atomic_init(&c->sendx, 0);
     atomic_init(&c->recvx, (uint64)1 << 32);
@@ -74,13 +74,13 @@ chaninit( Chan *c,
     if (checksizes(elemsz, nelem) != 0) { return -1; }
 
     if (nelem > 0 && elemsz > 0) {
-        if (nelem * (elemsz + sizeof(Elem)) <= sizeof(c->tqi)) {
+        if ((sizeof(Elem) + elemsz) * nelem <= sizeof(c->tqi)) {
             /* tqi isn't used in regular channels, so we can abuse it to avoid
              * a size_t sized malloc, which on 64-bit systems would correspond
              * to a single int buffer */
             buf = (void *)&c->tqi;
         } else {
-            buf = malloc(nelem * (sizeof(Elem) + elemsz));
+            buf = malloc((sizeof(Elem) + elemsz) * nelem);
             if (!buf) { return -1; }
         }
     }
@@ -99,7 +99,7 @@ channew( size_t elemsz,
     if (checksizes(elemsz, nelem) != 0) { return nil; }
 
     if (elemsz > 0 && nelem > 0) {
-        c = xmalloc(sizeof(*c), nelem * (sizeof(Elem) + elemsz));
+        c = xmalloc(sizeof(*c), (sizeof(Elem) + elemsz) * nelem);
         buf = c + 1;
     } else {
         c = malloc(sizeof(*c));
@@ -323,7 +323,7 @@ asyncopnb( Chan *c,
         pos = (uint32)(x & 0xFFFFFFFF);
         lap = (uint32)((x >> 32) & 0xFFFFFFFF);
 
-        e = (Elem *)((byte *)c->buf + pos * (sizeof(Elem) + c->elemsz));
+        e = (Elem *)((byte *)c->buf + (sizeof(Elem) + c->elemsz) * pos);
         elap = atomic_load(&e->lap);
 
         if (lap == elap) {
@@ -367,7 +367,7 @@ asyncready( Chan *c,
     pos = (uint32)(x & 0xFFFFFFFF);
     lap = (uint32)((x >> 32) & 0xFFFFFFFF);
 
-    e = (Elem *)((byte *)c->buf + pos * (sizeof(Elem) + c->elemsz));
+    e = (Elem *)((byte *)c->buf + (sizeof(Elem) + c->elemsz) * pos);
     elap = atomic_load(&e->lap);
 
     return (lap == elap);
