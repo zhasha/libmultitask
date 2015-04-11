@@ -41,11 +41,11 @@ enum {
 
 enum {
     DEFTIMEOUT = 10000,
-    SIGCANCEL = SIGUSR1,
 };
 
 static sigset_t sigs;
 static TimeQueue cancelq;
+static int SIGCANCEL;
 
 static void dtor(Chan *c);
 
@@ -166,6 +166,7 @@ init( void )
                 unlock(&initlock);
                 return -1;
             }
+            SIGCANCEL = SIGRTMAX;
 
             /* create a sigset with only SIGCANCEL unblocked */
             r = sigfillset(&sigs);
