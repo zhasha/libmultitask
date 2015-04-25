@@ -20,9 +20,12 @@ lock( Lock *l )
         int spins = 200;
 
         while (spins--) {
-            if (atomic_exchange(&l->locked, 1) == 0) {
-                atomic_thread_fence(memory_order_seq_cst);
-                return;
+            if (!atomic_load_explicit(&l->locked, memory_order_acquire)) {
+                int c = 0;
+                if (atomic_compare_exchange_strong(&l->locked, &c, 1)) {
+                    atomic_thread_fence(memory_order_seq_cst);
+                    return;
+                }
             }
             _taskspin();
         }
@@ -38,13 +41,14 @@ lock( Lock *l )
 int
 trylock( Lock *l )
 {
-    return (atomic_exchange(&l->locked, 1) == 0);
+    int c = 0;
+    return atomic_compare_exchange_strong(&l->locked, &c, 1);
 }
 
 void
 unlock( Lock *l )
 {
-    atomic_store(&l->locked, 0);
+    atomic_store_explicit(&l->locked, 0, memory_order_release);
 #ifdef usefutex
     syscall(SYS_futex, (volatile int *)&l->locked, FUTEX_WAKE, 1, nil);
 #endif
