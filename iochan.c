@@ -89,6 +89,7 @@ iothread( void *arg )
         r = proc(io.argbuf, &io.state);
 
         /* get ready for another round */
+        io.timeout = 0;
         io.task = _taskdequeue();
         switch (atomic_exchange(&io.state, WAITING)) {
             case MORIBUND:
@@ -134,7 +135,7 @@ cancelcb( Chan *c )
 
     /* the basic idea here is to do exponential backoff signalling until the
      * cancellation is successful */
-    if (atomic_load(&io->state) != WAITING) {
+    if (io->timeout > 0) {
         pthread_kill(io->ptid, SIGCANCEL);
         return io->timeout *= 2;
     }
