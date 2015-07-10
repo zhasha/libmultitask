@@ -1,6 +1,6 @@
 #include <u.h>
 #include <libc.h>
-#include <multitask.h>
+#include "multitask.h"
 #include "multitask-impl.h"
 
 typedef struct LibmultitaskChanInternalWaiter CWaiter;

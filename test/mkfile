@@ -11,3 +11,5 @@ HFILES=\
 	../multitask.h\
 
 <$p9/mktest
+
+CFLAGS=$CFLAGS -I..
