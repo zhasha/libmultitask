@@ -105,51 +105,49 @@ ns2ts( TimeQueue *q,
 }
 
 void
-_tqinsert( TimeQueue *q,
-           Chan *c,
-           uvlong nsec,
-           bool flush )
+_tqlock( TimeQueue *q )
 {
-    struct timespec ts;
-    int r;
-    size_t ti;
-
-    if (atomic_load(&c->closed)) { return; }
-
-    _tqremove(q, c, false, flush);
-    if (nsec == 0) { return; }
-
-    ts = ns2ts(q, nsec);
-
-    /* insert timeout on heap */
-    r = pthread_mutex_lock(&q->mtx);
+    int r = pthread_mutex_lock(&q->mtx);
     assert(r == 0);
-    q->w[q->nw].ts = ts;
-    q->w[q->nw].c = c;
-    c->tqi = q->nw;
-    heapifyup(q, q->nw++);
-    ti = c->tqi;
-    r = pthread_mutex_unlock(&q->mtx);
+}
+
+void
+_tqunlock( TimeQueue *q,
+           int sig )
+{
+    int r = pthread_mutex_unlock(&q->mtx);
     assert(r == 0);
 
-    if (ti == 0) {
-        /* this is the shortest so far, so ping the timer thread */
+    if (sig) {
         r = pthread_cond_signal(&q->cond);
         assert(r == 0);
     }
 }
 
-void
+int
+_tqinsert( TimeQueue *q,
+           Chan *c,
+           uvlong nsec )
+{
+    struct timespec ts = ns2ts(q, nsec);
+
+    /* insert timeout on heap */
+    q->w[q->nw].ts = ts;
+    q->w[q->nw].c = c;
+    c->tqi = q->nw;
+    heapifyup(q, q->nw++);
+
+    /* if this is the shortest, ping the timer */
+    if (c->tqi == 0) { return 1; }
+    return 0;
+}
+
+int
 _tqremove( TimeQueue *q,
            Chan *c,
-           bool free,
-           bool flush )
+           int flags )
 {
-    size_t i;
-    int r;
-
-    r = pthread_mutex_lock(&q->mtx);
-    assert(r == 0);
+    size_t i = 1;
 
     if (c) {
         i = c->tqi;
@@ -165,7 +163,7 @@ _tqremove( TimeQueue *q,
         }
     }
 
-    if (free) {
+    if (flags & TQfree) {
         size_t sz;
 
         q->nneed--;
@@ -184,18 +182,9 @@ _tqremove( TimeQueue *q,
         }
     }
 
-    if (flush) {
-        /* remove potential reply when being reset */
-        chanrecvnb(c, nil);
-    }
-
-    r = pthread_mutex_unlock(&q->mtx);
-    assert(r == 0);
-
-    if (i == 0) {
-        int r = pthread_cond_signal(&q->cond);
-        assert(r == 0);
-    }
+    /* if we removed the bottom element, ping the timer */
+    if (i == 0) { return 1; }
+    return 0;
 }
 
 int

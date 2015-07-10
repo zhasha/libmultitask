@@ -189,6 +189,7 @@ typedef ssize_t (*IOFunc)(void *args, atomic_int *cancel);
 Chan *iochan(size_t extrastack);
 void iocall(Chan *c, IOFunc proc, const void *args, size_t argsz);
 ssize_t iocancel(Chan *c);
+int ioalarm(Chan *c, uvlong timeout);
 
 void ioopen(Chan *c, const char *pathname, int flags, mode_t mode);
 void ioread(Chan *c, int fd, void *buf, size_t count);

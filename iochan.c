@@ -7,7 +7,6 @@
 #include <pthread.h>
 #include <signal.h>
 
-typedef struct IOBegin IOBegin;
 typedef struct IOThread IOThread;
 
 struct IOThread
@@ -21,6 +20,7 @@ struct IOThread
     atomic_int state;
     volatile uvlong timeout;
     Task *volatile canceler;
+    volatile int alarm;
     sem_t sem;
 
     /* itc */
@@ -80,16 +80,12 @@ iothread( void *arg )
         IOFunc proc;
         ssize_t r;
 
-        /* yield until we get a command */
         taskyield();
 
-        /* fetch and run proc */
         proc = io.proc;
         if (!proc) { break; }
         r = proc(io.argbuf, &io.state);
 
-        /* get ready for another round */
-        io.timeout = 0;
         io.task = _taskdequeue();
         switch (atomic_exchange(&io.state, WAITING)) {
             case MORIBUND:
@@ -98,6 +94,8 @@ iothread( void *arg )
                  * screws with our Task pointer after this */
                 if (atomic_exchange(&io.state, MORIBUND) == WAITING) {
                     _taskundequeue(io.task);
+                } else {
+                    taskyield();
                 }
                 proc = nil;
                 /* fall through */
@@ -109,7 +107,7 @@ iothread( void *arg )
                 while (sem_wait(&io.sem) != 0) {
                     assert(errno == EINTR);
                 }
-                _taskready(io.canceler);
+                if (io.canceler) { _taskready(io.canceler); }
                 break;
 
             default:
@@ -122,22 +120,49 @@ iothread( void *arg )
         if (!proc) { break; }
     }
 
-    /* remove own cancel queue slot */
-    _tqremove(&cancelq, &c, true, false);
-    /* on sane systems this is a nop */
-    sem_destroy(&io.sem);
+    /* wait before destroying everything */
+    while (sem_wait(&io.sem) != 0) {
+        assert(errno == EINTR);
+    }
+
+    {
+        int r;
+
+        /* remove own cancel queue slot */
+        _tqlock(&cancelq);
+        r = _tqremove(&cancelq, &c, TQfree);
+        _tqunlock(&cancelq, r);
+
+        /* on sane systems this is a nop */
+        r = sem_destroy(&io.sem);
+        assert(r == 0);
+    }
 }
 
 static uvlong
 cancelcb( Chan *c )
 {
     IOThread *io = c->buf;
+    int s = atomic_load(&io->state);
 
-    /* the basic idea here is to do exponential backoff signalling until the
-     * cancellation is successful */
-    if (io->timeout > 0) {
+    if (s >= CANCELED) {
+        /* the basic idea here is to do exponential backoff signalling
+         * until the cancellation is successful */
         pthread_kill(io->ptid, SIGCANCEL);
         return io->timeout *= 2;
+    } else if (s == RUNNING && io->alarm) {
+        /* we reuse the cancelq for alarm signals */
+        if (!atomic_compare_exchange_strong(&io->state, &s, CANCELED)) {
+            return 0;
+        }
+
+        io->timeout = DEFTIMEOUT;
+        io->canceler = nil;
+        s = sem_post(&io->sem);
+        assert(s == 0);
+
+        pthread_kill(io->ptid, SIGCANCEL);
+        return DEFTIMEOUT;
     }
 
     return 0;
@@ -167,7 +192,7 @@ init( void )
                 unlock(&initlock);
                 return -1;
             }
-            SIGCANCEL = SIGRTMAX;
+            SIGCANCEL = SIGRTMAX - 1;
 
             /* create a sigset with only SIGCANCEL unblocked */
             r = sigfillset(&sigs);
@@ -206,7 +231,7 @@ iochan( size_t extrastack )
     /* create the thread. The thread will init the channel */
     if (threadcreate(iothread, self, PTHREAD_STACK_MIN + extrastack) < 0) {
         _taskundequeue(self);
-        _tqremove(&cancelq, nil, true, false);
+        _tqremove(&cancelq, nil, TQfree);
         return nil;
     }
 
@@ -231,11 +256,15 @@ _iocancel( Chan *c,
     r = sem_post(&io->sem);
     assert(r == 0);
 
-    /* try to kill the current call */
     pthread_kill(io->ptid, SIGCANCEL);
+
     /* do the timeout dance */
+    _tqlock(&cancelq);
+    r |= _tqremove(&cancelq, c, 0);
     io->timeout = DEFTIMEOUT;
-    _tqinsert(&cancelq, c, DEFTIMEOUT, false);
+    r |= _tqinsert(&cancelq, c, DEFTIMEOUT);
+    _tqunlock(&cancelq, r);
+
     taskyield();
 
     return true;
@@ -245,15 +274,24 @@ static void
 dtor( Chan *c )
 {
     IOThread *io = c->buf;
+    int r;
 
     while (!_iocancel(c, MORIBUND)) {
-        int r = WAITING;
+        r = WAITING;
         if (atomic_compare_exchange_strong(&io->state, &r, MORIBUND)) {
             io->proc = nil;
             _taskready(io->task);
             break;
         }
+        _taskspin();
     }
+
+    /* _iocancel accesses members of c after sem_post which allows the thread
+     * to continue, rendezvous and destroy itself, so we need this sync or to
+     * degrade performance by moving sem_post down in _iocancel to just before
+     * task_yield(). */
+    r = sem_post(&io->sem);
+    assert(r == 0);
 }
 
 /* TODO: When musl gets reliable cancellation, use that */
@@ -262,9 +300,39 @@ iocancel( Chan *c )
 {
     ssize_t ret = 0;
 
+    if (atomic_load(&c->closed)) { return 0; }
+
     _iocancel(c, CANCELED);
     if (chanrecvnb(c, &ret) != 1) { return 0; }
     return ret;
+}
+
+int
+ioalarm( Chan *c,
+         uvlong timeout )
+{
+    IOThread *io = c->buf;
+    int r = 0;
+
+    if (atomic_load(&io->state) != RUNNING) { return 1; }
+    if (atomic_load(&c->closed)) { return 1; }
+
+    _tqlock(&cancelq);
+    if (atomic_load(&io->state) != RUNNING) {
+        _tqunlock(&cancelq, r);
+        return 1;
+    }
+
+    r |= _tqremove(&cancelq, c, 0);
+    if (timeout > 0) {
+        io->alarm = 1;
+        r |= _tqinsert(&cancelq, c, timeout);
+    } else {
+        io->alarm = 0;
+    }
+    _tqunlock(&cancelq, r);
+
+    return 0;
 }
 
 void
@@ -283,7 +351,22 @@ iocall( Chan *c,
      * yourself means you're doing something wrong. */
     if (!atomic_compare_exchange_strong(&io->state, &r, RUNNING)) { return; }
 
-    /* save proc and parameters */
+    /*
+     * race between RUNNING and previous ioalarm.
+     * A calls iocall()
+     * IO runs
+     * A calls ioalarm()
+     * IO returns
+     * A calls iocall()
+     * B is called back by previous ioalarm()
+     * B sees io->alarm == 1 && io->state == RUNNING and cancels unrelated call
+     *
+     * To avoid this we clear the cancel state after setting io->alarm = 0.
+     * It's not pretty but it works. It can eat an iocancel or ioalarm call but
+     * not after this call returns.
+     */
+    io->alarm = 0;
+    atomic_store(&io->state, RUNNING);
     io->proc = proc;
     if (argsz > 0) { memcpy(io->argbuf, args, argsz); }
 

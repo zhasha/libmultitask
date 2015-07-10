@@ -18,6 +18,7 @@ struct Task
     /* synchronization stuff */
     union {
         int qtype;
+        ssize_t ioret;
         struct {
             void *volatile rendtag;
             void *volatile rendval;
@@ -69,8 +70,14 @@ struct TimeQueue
     volatile int stop;
 };
 
-void _tqinsert(TimeQueue *q, Chan *c, uvlong nsec, bool flush);
-void _tqremove(TimeQueue *q, Chan *c, bool free, bool flush);
+enum {
+    TQfree = 1,
+};
+
+void _tqlock(TimeQueue *q);
+void _tqunlock(TimeQueue *q, int sig);
+int _tqinsert(TimeQueue *q, Chan *c, uvlong nsec);
+int _tqremove(TimeQueue *q, Chan *c, int flags);
 int _tqalloc(TimeQueue *q);
 int _tqinit(TimeQueue *q, uvlong (*cb)(Chan *));
 void _tqfree(TimeQueue *q);

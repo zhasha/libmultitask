@@ -36,7 +36,10 @@ init( void )
 static void
 dtor( Chan *c )
 {
-    _tqremove(&timeq, c, true, false);
+    int r = 0;
+    _tqlock(&timeq);
+    r |= _tqremove(&timeq, c, TQfree);
+    _tqunlock(&timeq, r);
 }
 
 static void
@@ -77,7 +80,14 @@ void
 tchanset( Chan *c,
           uvlong nsec )
 {
-    _tqinsert(&timeq, c, nsec, true);
+    int r = 0;
+    if (atomic_load(&c->closed)) { return; }
+
+    _tqlock(&timeq);
+    r |= _tqremove(&timeq, c, 0);
+    chanrecvnb(c, nil);
+    if (nsec > 0) { r |= _tqinsert(&timeq, c, nsec); }
+    _tqunlock(&timeq, r);
 }
 
 int
