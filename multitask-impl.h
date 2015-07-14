@@ -29,9 +29,15 @@ struct Task
         };
     };
 
+    /* extra data from the same allocation */
+    void *data;
+
     /* pointer returned by malloc */
     void *mem;
 };
+
+/* create a thread with an initially dequeued task */
+Task * _newthread(pthread_t *pt, void (*fn)(void *), void *arg, size_t stacksize, size_t datasize);
 
 /* insert a processor pause */
 void _taskspin(void);

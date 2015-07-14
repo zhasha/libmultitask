@@ -52,29 +52,12 @@ static void dtor(Chan *c);
 static void
 iothread( void *arg )
 {
-    IOThread io;
-    Chan c;
+    IOThread *io;
+    Chan *c;
 
-    memset(&io, 0, sizeof(io));
-    _chaninit(&c, sizeof(ssize_t), 1, &io, dtor);
-
-    /* initialize everything and dequeue ourselves */
-    atomic_init(&io.state, WAITING);
-    io.task = _taskdequeue();
-    io.ptid = pthread_self();
-
-    {
-        int r;
-        /* according to posix these can't fail lest you give bad args */
-        r = sem_init(&io.sem, 0, 0);
-        assert(r == 0);
-        r = pthread_sigmask(SIG_SETMASK, &sigs, nil);
-        assert(r == 0);
-    }
-
-    /* can't use rendez because of _taskdequeue */
-    ((Task *)arg)->rendval = &c;
-    _taskready(arg);
+    c = arg;
+    io = (IOThread *)(c + 1);
+    pthread_sigmask(SIG_SETMASK, &sigs, nil);
 
     while (1) {
         IOFunc proc;
@@ -82,18 +65,18 @@ iothread( void *arg )
 
         taskyield();
 
-        proc = io.proc;
+        proc = io->proc;
         if (!proc) { break; }
-        r = proc(io.argbuf, &io.state);
+        r = proc(io->argbuf, &io->state);
 
-        io.task = _taskdequeue();
-        switch (atomic_exchange(&io.state, WAITING)) {
+        io->task = _taskdequeue();
+        switch (atomic_exchange(&io->state, WAITING)) {
             case MORIBUND:
                 /* this looks racy but since iocall doesn't actually tell you
                  * whether or not it was successful it just ensures that no one
                  * screws with our Task pointer after this */
-                if (atomic_exchange(&io.state, MORIBUND) == WAITING) {
-                    _taskundequeue(io.task);
+                if (atomic_exchange(&io->state, MORIBUND) == WAITING) {
+                    _taskundequeue(io->task);
                 } else {
                     taskyield();
                 }
@@ -101,42 +84,35 @@ iothread( void *arg )
                 /* fall through */
             case CANCELED:
                 /* we must send before rendezvousing with the canceler */
-                if (proc) { chansendnb(&c, &r); }
+                if (proc) { chansendnb(c, &r); }
 
                 /* this request was cancelled so someone is waiting for us */
-                while (sem_wait(&io.sem) != 0) {
+                while (sem_wait(&io->sem) != 0) {
                     assert(errno == EINTR);
                 }
-                if (io.canceler) { _taskready(io.canceler); }
+                if (io->canceler) { _taskready(io->canceler); }
                 break;
 
             default:
                 /* We send non-blocking for a couple of reasons. First off it
                  * doesn't even make sense to block here. Second, since we've
                  * dequeue'd ourselves already, blocking would be illegal */
-                chansendnb(&c, &r);
+                chansendnb(c, &r);
                 break;
         }
         if (!proc) { break; }
     }
 
     /* wait before destroying everything */
-    while (sem_wait(&io.sem) != 0) {
+    while (sem_wait(&io->sem) != 0) {
         assert(errno == EINTR);
     }
 
-    {
-        int r;
+    /* remove own cancel queue slot */
+    _tqlock(&cancelq);
+    _tqunlock(&cancelq, _tqremove(&cancelq, c, TQfree));
 
-        /* remove own cancel queue slot */
-        _tqlock(&cancelq);
-        r = _tqremove(&cancelq, &c, TQfree);
-        _tqunlock(&cancelq, r);
-
-        /* on sane systems this is a nop */
-        r = sem_destroy(&io.sem);
-        assert(r == 0);
-    }
+    sem_destroy(&io->sem);
 }
 
 static uvlong
@@ -219,25 +195,40 @@ init( void )
 Chan *
 iochan( size_t extrastack )
 {
-    Task *self;
+    pthread_t pt;
+    IOThread *io;
+    Chan *c;
+    Task *t;
+    int r;
 
     /* initialize signal stuff */
     if (init() != 0) { return nil; }
     if (_tqalloc(&cancelq) != 0) { return nil; }
 
-    /* dequeue self and wait for the created thread to put us back */
-    self = _taskdequeue();
-
     /* create the thread. The thread will init the channel */
-    if (threadcreate(iothread, self, PTHREAD_STACK_MIN + extrastack) < 0) {
-        _taskundequeue(self);
+    if ((t = _newthread(&pt, iothread, nil, PTHREAD_STACK_MIN + extrastack,
+                        sizeof(Chan) + sizeof(IOThread))) == nil) {
         _tqremove(&cancelq, nil, TQfree);
         return nil;
     }
 
-    /* wait for the thread to be created and initialized */
-    taskyield();
-    return self->rendval;
+    c = t->data;
+    io = (IOThread *)(c + 1);
+    t->arg = c;
+
+    memset(io, 0, sizeof(*io));
+    _chaninit(c, sizeof(ssize_t), 1, io, dtor);
+
+    /* initialize everything and dequeue ourselves */
+    atomic_init(&io->state, WAITING);
+    io->task = t;
+    io->ptid = pt;
+
+    /* according to posix these can't fail lest you give bad args */
+    r = sem_init(&io->sem, 0, 0);
+    assert(r == 0);
+
+    return c;
 }
 
 static inline bool

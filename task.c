@@ -20,6 +20,8 @@ struct Tls
     sigset_t oldsigs;
     jmp_buf ptctx;
 
+    void *tlsmem;
+
     /* signal stack */
     void *sigstack;
 };
@@ -117,29 +119,14 @@ void _threadblocksigs(void) { }
 void _threadunblocksigs(void) { }
 #endif
 
-static inline void
-inittask( Task *t,
-          void *mptr,
-          void (*fn)(void *),
-          void *arg,
-          void *stack,
-          size_t stacksize )
-{
-    atomic_init(&t->anext, nil);
-    t->stacksize = stacksize;
-    t->stack = stack;
-    t->tls = tasks;
-    t->fn = fn;
-    t->arg = arg;
-    t->mem = mptr;
-}
-
 static inline Task *
-alloctask( void (*fn)(void *),
-           void *arg,
-           size_t stacksize,
-           bool nostack )
+newtask( void (*fn)(void *),
+         void *arg,
+         size_t stacksize,
+         size_t datasize,
+         bool nostack )
 {
+    size_t stksz = 0;
     Task *t;
     byte *mem;
 
@@ -148,14 +135,28 @@ alloctask( void (*fn)(void *),
         stacksize &= ~(size_t)63;
 
         /* overflow check */
-        if ((size_t)-1 - stacksize < sizeof(Task)) { return nil; }
+        if ((size_t)-1 - stacksize < sizeof(Task)) {
+            errno = ENOMEM;
+            return nil;
+        }
+        stksz = stacksize;
+    }
+    if ((size_t)-1 - stksz - sizeof(Task) < datasize) {
+        errno = ENOMEM;
+        return nil;
     }
 
-    mem = aligned_alloc(64, (nostack ? 0 : stacksize) + sizeof(Task));
+    mem = aligned_alloc(64, stksz + sizeof(Task) + datasize);
     if (!mem) { return nil; }
 
-    t = (Task *)&mem[nostack ? 0 : stacksize];
-    inittask(t, mem, fn, arg, (void *)t, stacksize);
+    t = (Task *)&mem[stksz];
+    memset(t, 0, sizeof(*t));
+    t->stacksize = stacksize;
+    if (!nostack) { t->stack = t; }
+    t->fn = fn;
+    t->arg = arg;
+    t->data = t + 1;
+    t->mem = mem;
 
     /* stack should be aligned to 64-byte boundary */
     assert(((uintptr)t->stack & (uintptr)63) == 0);
@@ -259,50 +260,34 @@ trypopq:
 static void *
 threadstart( void *arg )
 {
-    Tls tls;
     Task *t = arg;
-    int r;
-
-    tasks = &tls;
-
-    /* init tls */
-    memset(&tls, 0, sizeof(tls));
-    tls.cur = t;
-    tls.ready = &tls.readystub;
-    atomic_init(&tls.readyend, &tls.readystub);
-    atomic_init(&tls.readystub.anext, nil);
-    tls.readystub.tls = &tls;
-    tls.ntasks = 1;
-    tls.popped = false;
-    r = sem_init(&tls.sem, 0, 0);
-    assert(r == 0);
-
-    /* use the OS-assigned stack */
-    t->stack = &tls;
-    t->tls = &tls;
+    t->stack = &t;
+    tasks = t->tls;
 
     /* switch to new task */
-    if (setjmp(tls.ptctx) == 0) {
+    if (setjmp(t->tls->ptctx) == 0) {
+        taskyield();
         t->fn(t->arg);
         taskexit();
     }
     /* after the last exit, we go here */
 
     /* reap all dead tasks */
-    t = tls.ready;
+    t = tasks->ready;
     while (t) {
         Task *n = atomic_load(&t->anext);
-        if (t != &tls.readystub) { freetask(t); }
+        if (t != &tasks->readystub) { freetask(t); }
         t = n;
     }
 
     /* should be a nop barring a terrible libc */
-    r = sem_destroy(&tls.sem);
-    assert(r == 0);
+    sem_destroy(&tasks->sem);
     /* free alt sig stack (pthread's stack is always large enough, making this
      * as safe as it's going to get when signals are involved) */
-    r = threadsigstack(0);
-    assert(r == 0);
+    threadsigstack(0);
+
+    /* free memory associated with tls */
+    free(tasks->tlsmem);
 
     return nil;
 }
@@ -328,16 +313,33 @@ main( int argc,
 {
     Mainargs arg = { argc, argv };
     Task t;
+    Tls tls;
+
+    /* TLS */
+    memset(&tls, 0, sizeof(tls));
+    tls.cur = &t;
+    tls.ready = &tls.readystub;
+    atomic_init(&tls.readyend, &tls.readystub);
+    atomic_init(&tls.readystub.anext, nil);
+    tls.readystub.tls = &tls;
+    tls.ntasks = 1;
+    tls.popped = false;
+    if (sem_init(&tls.sem, 0, 0) != 0) { panic("sem_init failed: %r"); }
+
+    /* Task */
+    memset(&t, 0, sizeof(t));
+    t.stacksize = (size_t)-1 / 2;
+    t.fn = mainstart;
+    t.arg = &arg;
+    t.tls = &tls;
 
     /* the main thread has infinite stack, so just give it arbitrary size */
-    inittask(&t, nil, mainstart, &arg, nil, ((size_t)-1) / 2);
     threadstart(&t);
 
     /* when main returns it will call exit() but by calling pthread_exit
      * instead we will allow all threads to keep on living after main returns.
      * This way, you need to manually call exit() to kill the pid */
     pthread_exit(nil);
-    return 0; /* unreached */
 }
 
 int
@@ -372,23 +374,42 @@ threadsigstack( size_t stacksize )
     return 0;
 }
 
-int
-threadcreate( void (*fn)(void *),
-              void *arg,
-              size_t stacksize )
+Task *
+_newthread( pthread_t *pt,
+            void (*fn)(void *),
+            void *arg,
+            size_t stacksize,
+            size_t datasize )
 {
-    Task *t;
     pthread_attr_t attr;
-    pthread_t pt;
-    int e;
+    Task *t;
+    Tls *tls;
 
-    /* calculate the actual stack size */
-    stacksize += sizeof(Tls) + 64;
+    if ((size_t)-1 - sizeof(Tls) < datasize) {
+        errno = ENOMEM;
+        return nil;
+    }
     if (stacksize < PTHREAD_STACK_MIN) { stacksize = PTHREAD_STACK_MIN; }
 
-    /* allocate a stackless task */
-    t = alloctask(fn, arg, stacksize, true);
-    if (!t) { return -1; }
+    t = newtask(fn, arg, stacksize, sizeof(Tls) + datasize, true);
+    if (!t) { return nil; }
+    tls = t->data;
+    t->tls = tls;
+    t->data = tls + 1;
+
+    /* init tls */
+    memset(tls, 0, sizeof(*tls));
+    tls->cur = t;
+    tls->ready = &tls->readystub;
+    atomic_init(&tls->readyend, &tls->readystub);
+    atomic_init(&tls->readystub.anext, nil);
+    tls->readystub.tls = tls;
+    tls->ntasks = 1;
+    tls->popped = true;
+    if (sem_init(&tls->sem, 0, 0) != 0) {
+        freetask(t);
+        return nil;
+    }
 
     /* give the pthread proper attributes, including adjusted stack size */
     if (pthread_attr_init(&attr) != 0) { goto errout; }
@@ -398,19 +419,30 @@ threadcreate( void (*fn)(void *),
         goto attrout;
     }
 
-    e = pthread_create(&pt, &attr, threadstart, t);
-
-    /* clean up */
+    if (pthread_create(pt, &attr, threadstart, t) != 0) { goto attrout; }
     pthread_attr_destroy(&attr);
-    if (e != 0) { goto errout; }
-
-    return 0; /* TODO: generate thread id */
+    return t;
 
 attrout:
     pthread_attr_destroy(&attr);
 errout:
     freetask(t);
-    return -1;
+    return nil;
+}
+
+int
+threadcreate( void (*fn)(void *),
+              void *arg,
+              size_t stacksize )
+{
+    pthread_t dummy;
+    Task *t;
+
+    t = _newthread(&dummy, fn, arg, stacksize, 0);
+    if (!t) { return -1; }
+    _taskready(t);
+
+    return 0;
 }
 
 int
@@ -418,15 +450,16 @@ taskcreate( void (*fn)(void *),
             void *arg,
             size_t stacksize )
 {
-    Task *t = alloctask(fn, arg, stacksize, false);
+    Task *t = newtask(fn, arg, stacksize, 0, false);
     if (!t) { return -1; }
 
+    t->tls = tasks;
     t->tls->ntasks++;
 
     _tasksetjmp(t->ctx, t->stack, t);
     _taskready(t);
 
-    return 0; /* TODO: generate task id */
+    return 0;
 }
 
 size_t
