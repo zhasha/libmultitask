@@ -265,8 +265,9 @@ static void
 dtor( Chan *c )
 {
     IOThread *io = c->buf;
-    int r;
+    int r, e;
 
+    e = errno;
     while (!_iocancel(c, MORIBUND)) {
         r = WAITING;
         if (atomic_compare_exchange_strong(&io->state, &r, MORIBUND)) {
@@ -276,6 +277,7 @@ dtor( Chan *c )
         }
         _taskspin();
     }
+    errno = e;
 
     /* _iocancel accesses members of c after sem_post which allows the thread
      * to continue, rendezvous and destroy itself, so we need this sync or to

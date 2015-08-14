@@ -233,9 +233,11 @@ popwait:
             Task *w = (Task *)((uintptr)q | 1);
             Task *a = q;
             if (atomic_compare_exchange_weak(&tasks->readyend, &a, w)) {
+                int e = errno; /* taskyield() needs to not clobber errno */
                 while (sem_wait(&tasks->sem) != 0) {
                     assert(errno == EINTR);
                 }
+                errno = e;
             }
             continue;
         }
