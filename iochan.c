@@ -56,7 +56,7 @@ iothread( void *arg )
     Chan *c;
 
     c = arg;
-    io = (IOThread *)(c + 1);
+    io = c->buf;
     pthread_sigmask(SIG_SETMASK, &sigs, nil);
 
     while (1) {
