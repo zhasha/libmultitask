@@ -1,5 +1,5 @@
 CC=clang -std=gnu11
-AS=clang -integrated-as -mllvm --x86-asm-syntax=intel
+AS=clang -integrated-as -mllvm --x86-asm-syntax=intel -x assembler-with-cpp
 CFLAGS=-Os -g
 AFLAGS=
 PREFIX=/usr/local
@@ -37,7 +37,7 @@ all: $(LIB)
 $(SOURCES): $(HEADERS)
 
 .s.o:
-	$(AS) $(AFLAGS) -c -o $@ $<
+	$(AS) $(AFLAGS) -include assembly.h -c -o $@ $<
 
 .c.o:
 	$(CC) $(CFLAGS) -I. -c -o $@ $<

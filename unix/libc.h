@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #define nil ((void *)0)
 
@@ -68,4 +69,12 @@ nsleep( uvlong ns )
     assert(r == 0 || (r < 0 && errno == EINTR));
     return (r == 0) ? 0 : ((uvlong)left.tv_sec * NS + (uvlong)ts.tv_nsec);
 #undef NS
+}
+
+static noreturn void
+panic( const char *fmt,
+       ... )
+{
+    (void)fmt;
+    abort();
 }
