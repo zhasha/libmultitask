@@ -5,10 +5,8 @@
  * RBP, RBX, R12-R15 are callee save
  */
 
-.global _tasksetjmp
-.type _tasksetjmp,@function
 /* void _tasksetjmp(jmp_buf env, void *stack, Task *t) */
-_tasksetjmp:
+TEXT _tasksetjmp
     /* save stack pointer */
     PUSH RBX
     MOV RBX, RSP
@@ -19,22 +17,19 @@ _tasksetjmp:
     /* save context with setjmp (RDI still contains env) */
     CALL setjmp
     TEST RAX, RAX
-    JZ rval
+    JZ 1f
     /* entering thread for the first time */
     MOV RDI, QWORD PTR [RSP] /* t */
     MOV QWORD PTR [RSP], 0 /* end of frame */
     MOV RBP, 0 /* frame pointer if used */
     JMP _taskstart
 
-rval:
     /* restore stack pointer and return */
-    MOV RSP, RBX
+1:  MOV RSP, RBX
     POP RBX
     RET
 
-.global _taskspin
-.type _taskspin,@function
 /* void _taskspin(void) */
-_taskspin:
+TEXT _taskspin
     PAUSE
     RET

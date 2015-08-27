@@ -9,10 +9,8 @@
  * EBX is GOT for PIC
  */
 
-.global _tasksetjmp
-.type _tasksetjmp,@function
 /* void _tasksetjmp(jmp_buf env, void *stack, Task *t) */
-_tasksetjmp:
+TEXT _tasksetjmp
     /* pull arguments off the stack */
     MOV EAX, DWORD PTR [ESP + 12] /* t */
     MOV ECX, DWORD PTR [ESP +  8] /* stack */
@@ -29,23 +27,20 @@ _tasksetjmp:
     /* save context with setjmp */
     CALL setjmp
     TEST EAX, EAX
-    JZ rval
+    JZ 1f
     /* entering thread, put t in the argument position */
     MOV DWORD PTR [ESP], EDI
     PUSH 0 /* alignment and stop block */
     MOV EBP, 0 /* frame pointer if used */
     JMP _taskstart
 
-rval:
     /* restore stack pointer and return */
-    MOV ESP, ESI
+1:  MOV ESP, ESI
     POP ESI
     POP EDI
     RET
 
-.global _taskspin
-.type _taskspin,@function
 /* void _taskspin(void) */
-_taskspin:
+TEXT _taskspin
     PAUSE /* on pre-SSE2, this is "rep nop" aka. nop */
     RET
