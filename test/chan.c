@@ -142,7 +142,7 @@ threadmain( int argc,
         fprint(1, "Error reading /etc/resolv.conf: %s\n", strerror(-(int)sr));
         abort();
     } else {
-        fprint(1, "(some) /etc/resolv.conf contents:\n%.*s\n", (int)sr, buf);
+        fprint(1, "(some) /etc/resolv.conf contents:\n%.*s\n", sr, buf);
         fflush(stdout);
     }
 
