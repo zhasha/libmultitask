@@ -15,7 +15,7 @@ int threadsigstack(size_t stacksize);
 int threadcreate(void (*fn)(void *), void *arg, size_t stacksize);
 int taskcreate(void (*fn)(void *), void *arg, size_t stacksize);
 size_t taskstack(void);
-void taskyield(void);
+ulong taskyield(void);
 noreturn void taskexit(void);
 
 /*

@@ -13,6 +13,7 @@ struct Tls
     Task *ready;
     _Atomic(Task *) readyend;
     Task readystub;
+    volatile ulong seq;
 
     uint ntasks;
     bool popped;
@@ -488,7 +489,7 @@ taskstack( void )
     return tasks->cur->stacksize - (size_t)((byte *)tasks->cur->stack - &c);
 }
 
-void
+ulong
 taskyield( void )
 {
     Task *t = rrtask();
@@ -496,6 +497,7 @@ taskyield( void )
     /* rrtask will return nil if there's no need to switch contexts */
     if (t) {
         Task *c = tasks->cur;
+        ulong seq = tasks->seq++;
 
         /* swap contexts */
         fegetenv(&c->fctx);
@@ -505,7 +507,9 @@ taskyield( void )
         } else {
             fesetenv(&c->fctx);
         }
+        return tasks->seq - seq;
     }
+    return 0;
 }
 
 noreturn void
