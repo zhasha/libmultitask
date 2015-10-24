@@ -408,10 +408,7 @@ _newthread( pthread_t *pt,
     tls->readystub.tls = tls;
     tls->ntasks = 1;
     tls->popped = true;
-    if (sem_init(&tls->sem, 0, 0) != 0) {
-        freetask(t);
-        return nil;
-    }
+    if (sem_init(&tls->sem, 0, 0) != 0) { goto errout; }
 
     /* give the pthread proper attributes, including adjusted stack size */
     if (pthread_attr_init(&attr) != 0) { goto errout; }
