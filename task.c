@@ -452,6 +452,25 @@ taskcreate( void (*fn)(void *),
     Task *t = newtask(fn, arg, stacksize, 0, false);
     if (!t) { return -1; }
 
+    /* put Tls into malloc'd memory so the main thread may exit in peace */
+    if (!tasks->tlsmem) {
+        tasks->tlsmem = malloc(sizeof(Tls));
+        if (!tasks->tlsmem) {
+            freetask(t);
+            return -1;
+        }
+        assert(tasks->ready == &tasks->readystub);
+        *(Tls *)tasks->tlsmem = *tasks;
+        tasks = tasks->tlsmem;
+        /* taskcreate can only be called from the singular task in the current
+         * thread, thus cur is always valid and never in the hands of another
+         * thread, so this is perfectly safe. We also need to update readystub
+         * and the queue, which should only contain readystub. */
+        tasks->cur->tls = tasks;
+        tasks->readystub.tls = tasks;
+        tasks->ready = &tasks->readystub;
+        atomic_init(&tasks->readyend, &tasks->readystub);
+    }
     t->tls = tasks;
     t->tls->ntasks++;
 
