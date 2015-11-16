@@ -25,12 +25,8 @@ TEXT _tasksetjmp
     /* restore sp, registers and return */
 1:  mov sp, v1
     pop {v1, v2, lr}
-    tst lr, #1
-    moveq pc, lr
     bx lr
 
 /* void _taskspin(void) */
 TEXT _taskspin
-    tst lr, #1
-    moveq pc, lr
     bx lr
