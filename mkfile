@@ -5,6 +5,7 @@ LIB=libmultitask.a
 
 OFILES=\
 	chan.$O\
+	cond.$O\
 	iochan.$O\
 	lock.$O\
 	qlock.$O\

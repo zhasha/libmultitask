@@ -94,6 +94,22 @@ void qwait(Queue *q);
 ulong qwake(Queue *q, ulong n);
 
 /*
+ * Condition variables
+ */
+typedef struct Cond Cond;
+
+struct Cond
+{
+    QLock *l;
+    ulong waiters;
+    void *volatile begin, *volatile end;
+};
+
+void condwait(Cond *c);
+ulong condsignal(Cond *c);
+ulong condbroadcast(Cond *c);
+
+/*
  * Channel communication
  */
 
