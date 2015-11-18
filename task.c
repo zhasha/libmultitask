@@ -48,11 +48,11 @@ enqueue( Task *t )
     Task *p;
     bool sig;
 
-    atomic_store(&t->anext, nil);
-    p = atomic_exchange(&t->tls->readyend, t);
+    atomic_init(&t->anext, nil);
+    p = atomic_exchange_explicit(&t->tls->readyend, t, memory_order_acq_rel);
     sig = (uintptr)p & 1;
     p = (Task *)((uintptr)p & ~(uintptr)1);
-    atomic_store(&p->anext, t);
+    atomic_store_explicit(&p->anext, t, memory_order_release);
 
     return sig;
 }
@@ -184,7 +184,7 @@ rrtask( void )
     while (1) {
         Task *n;
 
-        n = atomic_load(&q->anext);
+        n = atomic_load_explicit(&q->anext, memory_order_acquire);
         if (q == &tasks->readystub) {
             /* we got the stub element so look at the next one */
             if (!n) {
@@ -196,7 +196,7 @@ rrtask( void )
             }
             tasks->ready = n;
             q = n;
-            n = atomic_load(&n->anext);
+            n = atomic_load_explicit(&n->anext, memory_order_acquire);
         }
 
         if (n) {
@@ -205,7 +205,7 @@ rrtask( void )
             goto trypopq;
         }
 
-        if (q != atomic_load(&tasks->readyend)) {
+        if (q != atomic_load_explicit(&tasks->readyend, memory_order_acquire)) {
             /* Time delay where readyend has been swapped but next hasn't yet.
              * This is a good time to spin as we cannot pop the single element
              * left in the queue without letting this insertion finish */
@@ -217,7 +217,7 @@ rrtask( void )
         enqueue(&tasks->readystub);
 
         /* try to extract element again */
-        n = atomic_load(&q->anext);
+        n = atomic_load_explicit(&q->anext, memory_order_acquire);
         if (n) {
             tasks->ready = n;
             goto trypopq;
