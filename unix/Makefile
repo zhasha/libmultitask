@@ -27,12 +27,12 @@ TMP=$(SOURCES:.c=.o)
 OBJECTS=$(TMP:.s=.o)
 
 HEADERS=\
+	../multitask.h\
 	../multitask-impl.h\
 	u.h\
 	libc.h\
-	$(HEADER)\
 
-all: $(LIB)
+all: $(LIB) $(HEADER)
 
 $(SOURCES): $(HEADERS)
 
@@ -60,7 +60,7 @@ $(HEADER): $(HEADER).in
 $(LIB): $(OBJECTS)
 	ar rusc $@ $(OBJECTS)
 
-install: $(LIB)
+install: $(LIB) $(HEADER)
 	install -D -m 644 $(HEADER) "$(DESTDIR)/$(PREFIX)/include/$(HEADER)"
 	install -D -m 644 $(LIB) "$(DESTDIR)/$(LIBDIR)/$(LIB)"
 
