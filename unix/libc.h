@@ -3,7 +3,6 @@
 #include <string.h>
 #include <time.h>
 #include <setjmp.h>
-#include <fenv.h>
 #include <limits.h>
 #include <errno.h>
 #include <stdint.h>
