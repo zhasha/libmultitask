@@ -11,7 +11,6 @@ struct Task
 
     /* stack context */
     jmp_buf ctx;
-    fenv_t fctx;
     size_t stacksize;
     void *stack;
 

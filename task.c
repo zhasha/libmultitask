@@ -500,12 +500,9 @@ taskyield( void )
         ulong seq = tasks->seq++;
 
         /* swap contexts */
-        fegetenv(&c->fctx);
         if (setjmp(c->ctx) == 0) {
             tasks->cur = t;
             longjmp(t->ctx, 1);
-        } else {
-            fesetenv(&c->fctx);
         }
         return tasks->seq - seq;
     }
