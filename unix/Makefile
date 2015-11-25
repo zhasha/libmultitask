@@ -4,7 +4,7 @@ CFLAGS=-Os -g
 AFLAGS=
 PREFIX=/usr/local
 LIBDIR=$(PREFIX)/lib
-ARCH=$(shell sh ./arch.sh $(CC) $(CFLAGS))
+ARCH=$(shell uname -m)
 
 LIB=libmultitask.a
 HEADER=multitask.h
@@ -42,20 +42,8 @@ $(SOURCES): $(HEADERS)
 .c.o:
 	$(CC) $(CFLAGS) -I. -c -o $@ $<
 
-$(HEADER): $(HEADER).in
-	sed -e "/^%HEADER%\$$/{r ../$(HEADER)" -e "d}" $< | \
-	sed -e 's/\buchar\b/unsigned char/g' \
-	    -e 's/\bushort\b/unsigned short/g' \
-	    -e 's/\buint\b/unsigned int/g' \
-	    -e 's/\bulong\b/unsigned long/g' \
-	    -e 's/\buvlong\b/unsigned long long/g' \
-	    -e 's/\bvlong\b/long long/g' \
-	    -e 's/\bbyte\b/uint8_t/g' \
-	    -e 's/\brune\b/uint32_t/g' \
-	    -e 's/\b\(u\|\)int\(8\|16\|32\|64\|ptr\)\b/\1int\2_t/g' \
-	    -e 's/\bnoreturn\b/_Noreturn/g' \
-	    -e 's/\bAUTOLINK([A-Za-z0-9]\+)//g' \
-	    > $@
+$(HEADER): $(HEADER).in ../$(HEADER)
+	./makehdr.sh $(HEADER) > $(HEADER)
 
 $(LIB): $(OBJECTS)
 	ar rusc $@ $(OBJECTS)

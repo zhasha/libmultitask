@@ -1,10 +1,6 @@
 AUTOLINK(multitask)
 
-#include <stdatomic.h>
-
-#ifndef thread_local
-#define thread_local _Thread_local
-#endif
+#include "stdatomic.h"
 
 /*
  * Threading

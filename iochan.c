@@ -168,7 +168,7 @@ init( void )
                 unlock(&initlock);
                 return -1;
             }
-            SIGCANCEL = SIGRTMAX - 1;
+            SIGCANCEL = SIGTHR;
 
             /* create a sigset with only SIGCANCEL unblocked */
             r = sigfillset(&sigs);

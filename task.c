@@ -27,13 +27,21 @@ struct Tls
     void *sigstack;
 };
 
-static thread_local Tls *tasks;
+/*static thread_local Tls *tasks;*/
+pthread_key_t tasks_key;
+pthread_once_t tasks_once = PTHREAD_ONCE_INIT;
 
 #define DEAD(t) (!t->stack)
 #define DIE(t) do { t->stack = nil; } while (0)
 
 void _tasksetjmp(jmp_buf env, void *stack, Task *t);
 noreturn void _taskstart(Task *t);
+
+void
+tasks_key_init(void)
+{
+    pthread_key_create(&tasks_key, nil);
+}
 
 noreturn void
 _taskstart( Task *t )
@@ -69,6 +77,7 @@ _taskready( Task *t )
 Task *
 _taskdequeue( void )
 {
+    Tls *tasks = pthread_getspecific(tasks_key);
     assert(!tasks->popped);
     tasks->popped = true;
     return tasks->cur;
@@ -77,6 +86,7 @@ _taskdequeue( void )
 void
 _taskundequeue( Task *t )
 {
+    Tls *tasks = pthread_getspecific(tasks_key);
     (void)t;
     assert(tasks->popped);
     assert(t == tasks->cur);
@@ -147,9 +157,11 @@ newtask( void (*fn)(void *),
         return nil;
     }
 
-    mem = aligned_alloc(64, stksz + sizeof(Task) + datasize);
-    if (!mem) { return nil; }
-
+    if(posix_memalign((void**)&mem, 64, stksz + sizeof(Task) + datasize) != 0)
+        return nil;
+/*  mem = aligned_alloc(64, stksz + sizeof(Task) + datasize);
+ *  if (!mem) { return nil; }
+ */
     t = (Task *)&mem[stksz];
     memset(t, 0, sizeof(*t));
     t->stacksize = stacksize;
@@ -174,6 +186,7 @@ freetask( Task *t )
 static inline Task *
 rrtask( void )
 {
+    Tls *tasks = pthread_getspecific(tasks_key);
     Task *q, *c = tasks->cur;
     bool calive = !DEAD(c) && !tasks->popped;
 
@@ -263,9 +276,13 @@ trypopq:
 static void *
 threadstart( void *arg )
 {
+    Tls *tasks;
     Task *t = arg;
     t->stack = &t;
-    tasks = t->tls;
+    
+    pthread_once(&tasks_once, tasks_key_init);
+    pthread_setspecific(tasks_key, t->tls);
+    tasks = pthread_getspecific(tasks_key);
 
     /* switch to new task */
     if (setjmp(t->tls->ptctx) == 0) {
@@ -348,6 +365,7 @@ main( int argc,
 int
 threadsigstack( size_t stacksize )
 {
+    Tls *tasks = pthread_getspecific(tasks_key);
     stack_t ss;
     void *stk = nil;
 
@@ -450,6 +468,7 @@ taskcreate( void (*fn)(void *),
             void *arg,
             size_t stacksize )
 {
+    Tls *tasks = pthread_getspecific(tasks_key);
     Task *t = newtask(fn, arg, stacksize, 0, false);
     if (!t) { return -1; }
 
@@ -484,6 +503,7 @@ taskcreate( void (*fn)(void *),
 size_t
 taskstack( void )
 {
+    Tls *tasks = pthread_getspecific(tasks_key);
     byte c = 0;
 
     return tasks->cur->stacksize - (size_t)((byte *)tasks->cur->stack - &c);
@@ -492,6 +512,7 @@ taskstack( void )
 ulong
 taskyield( void )
 {
+    Tls *tasks = pthread_getspecific(tasks_key);
     Task *t = rrtask();
 
     /* rrtask will return nil if there's no need to switch contexts */
@@ -512,6 +533,7 @@ taskyield( void )
 noreturn void
 taskexit( void )
 {
+    Tls *tasks = pthread_getspecific(tasks_key);
     Task *c = tasks->cur;
 
     /* mark thread as dead so it will be culled later */

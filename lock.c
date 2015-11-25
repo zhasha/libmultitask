@@ -3,7 +3,7 @@
 #include "multitask.h"
 #include "multitask-impl.h"
 
-#include <syscall.h>
+#include <sys/syscall.h>
 
 #ifdef SYS_futex
 #define usefutex
