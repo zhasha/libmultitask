@@ -6,6 +6,7 @@
 #include <limits.h>
 #include <errno.h>
 #include <stdint.h>
+#include <pthread.h>
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/stat.h>
